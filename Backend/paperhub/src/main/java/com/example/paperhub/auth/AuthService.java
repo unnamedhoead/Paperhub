@@ -1,5 +1,6 @@
 package com.example.paperhub.auth;
 
+import com.example.paperhub.chat.UserSyncService;
 import com.example.paperhub.notify.MailService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -12,12 +13,14 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final MailService mailService;
+    private final UserSyncService userSyncService;
     private final SecureRandom random = new SecureRandom();
 
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, MailService mailService) {
+    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder, MailService mailService, UserSyncService userSyncService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.mailService = mailService;
+        this.userSyncService = userSyncService;
     }
     
     //以下函数是对应AuthController中的函数，负责处理用户认证相关的业务逻辑
@@ -59,6 +62,9 @@ public class AuthService {
         user.setVerifyCode(null);
         user.setVerifyExpiry(null);
         userRepository.save(user);
+
+        // 同步用户到EasyChat系统
+        userSyncService.syncUserToEasyChat(user);
     }
 
     public User validateLogin(String email, String rawPassword) {//验证用户登录

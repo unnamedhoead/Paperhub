@@ -36,8 +36,8 @@ import 'local_storage.dart';
 */
 
 /// TODO: 把 baseUrl 换成你后端的地址
-//const String baseUrl = 'http://124.70.87.106:8080';
-const String baseUrl = 'http://localhost:8080';
+const String baseUrl = 'http://124.70.87.106:8080';
+//const String baseUrl = 'http://localhost:8080';
 
 class ApiService {
   // 标记是否正在刷新，避免并发请求时多次刷新
@@ -854,14 +854,23 @@ class ApiService {
     );
   }
 
-  /// 删除帖子
-  static Future<Map<String, dynamic>> deletePost(String postId) async {
+  /// 通用GET请求
+  static Future<Map<String, dynamic>> get(String path) async {
     return await _makeRequest(
-      () => http.delete(
-        Uri.parse('$baseUrl/posts/$postId'),
+      () => http.get(Uri.parse('$baseUrl$path'), headers: _buildHeaders()),
+      path,
+    );
+  }
+
+  /// 通用POST请求
+  static Future<Map<String, dynamic>> post(String path, Map<String, dynamic>? body) async {
+    return await _makeRequest(
+      () => http.post(
+        Uri.parse('$baseUrl$path'),
         headers: _buildHeaders(),
+        body: body != null ? jsonEncode(body) : null,
       ),
-      '/posts/$postId',
+      path,
     );
   }
 
@@ -919,5 +928,4 @@ class ApiService {
       };
     }
   }
-
 }

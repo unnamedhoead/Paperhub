@@ -195,14 +195,7 @@ class _ProfilePageState extends State<ProfilePage>
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => PostDetailScreen(post: post)),
-    ).then((result) {
-      if (result == true) {
-        setState(() {
-          _authoredPosts.removeWhere((p) => p.id == post.id);
-          _favoritePosts.removeWhere((p) => p.id == post.id);
-        });
-        return;
-      }
+    ).then((_) {
       _loadProfile(forceNetwork: true);
     });
   }
@@ -531,18 +524,6 @@ class _ProfilePageState extends State<ProfilePage>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (_isViewingSelf)
-              Row(
-                children: [
-                  Builder(
-                    builder: (ctx) => IconButton(
-                      icon: const Icon(Icons.menu, color: Colors.white),
-                      onPressed: () => Scaffold.of(ctx).openDrawer(),
-                    ),
-                  ),
-                ],
-              ),
-            if (_isViewingSelf) const SizedBox(height: 8),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [

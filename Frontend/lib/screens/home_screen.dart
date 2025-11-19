@@ -33,9 +33,6 @@ import 'post_detail_screen.dart';
 import '../widgets/bottom_navigation.dart';
 import '../pages/note_editor_page.dart';
 import '../services/api_service.dart';
-import '../services/chat_service.dart';
-import '../services/unread_service.dart';
-import '../models/notification_model.dart';
 
 /// 首页入口组件（Stateful）：承载发现流与分区切换
 class HomeScreen extends StatefulWidget {
@@ -62,7 +59,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// 顶部 tab 选择（0=发现，1=分区）。
   int _selectedTab = 0; //  0=发现, 1=分区
-  final ChatService _chatService = ChatService();
 
   @override
   void initState() {
@@ -70,24 +66,6 @@ class _HomeScreenState extends State<HomeScreen> {
     // 初始化加载首屏数据，并注册滚动监听。
     _loadInitialPosts();
     _scrollController.addListener(_scrollListener);
-    _preloadUnreadBadges();
-  }
-
-  Future<void> _preloadUnreadBadges() async {
-    // 预加载聊天未读
-    _chatService.loadConversations();
-
-    // 预加载通知未读
-    try {
-      final resp = await ApiService.getUnreadNotificationCount();
-      if (resp['statusCode'] == 200) {
-        final body = resp['body'] as Map<String, dynamic>;
-        final count = UnreadCount.fromJson(body);
-        UnreadService.instance.updateNotificationUnread(count);
-      }
-    } catch (_) {
-      // 忽略网络异常
-    }
   }
 
   /// 初始加载首屏内容
@@ -263,15 +241,13 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => PostDetailScreen(post: post)),
-    ).then((result) {
-      if (result == true) {
-        setState(() {
-          _posts.removeWhere((p) => p.id == post.id);
-        });
-        return;
-      }
+    ).then((_) {
+      // 从详情页返回后，刷新当前帖子信息（而不是整个列表）
+      // 这里可以选择只更新当前帖子，或者重新加载整个列表
+      // 为了简单，我们重新加载第一页
       final currentPostIndex = _posts.indexWhere((p) => p.id == post.id);
       if (currentPostIndex != -1) {
+        // 可以只刷新单个帖子，这里暂时重新加载
         _loadInitialPosts();
       }
     });

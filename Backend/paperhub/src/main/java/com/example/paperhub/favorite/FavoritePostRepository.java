@@ -13,6 +13,5 @@ public interface FavoritePostRepository extends JpaRepository<FavoritePost, Long
     Page<FavoritePost> findByUserIdOrderByCreatedAtDesc(Long userId, Pageable pageable);
     long countByUserId(Long userId);
     Optional<FavoritePost> findByUserIdAndPostId(Long userId, Long postId);
-    void deleteByPostId(Long postId);
 }
 
