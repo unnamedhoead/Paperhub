@@ -45,54 +45,36 @@ public class AccountController extends ABaseController {
     @Resource
     private RedisComponet redisComponet;
 
-    /**
-     * 验证码
-     */
-    @RequestMapping(value = "/checkCode")
-    public ResponseVO checkCode() {
-        ArithmeticCaptcha captcha = new ArithmeticCaptcha(100, 42);
-        String code = captcha.text();
-        String checkCodeKey = UUID.randomUUID().toString();
-        redisUtils.setex(Constants.REDIS_KEY_CHECK_CODE + checkCodeKey, code, 60 * 10);
-        String checkCodeBase64 = captcha.toBase64();
-        Map<String, String> result = new HashMap<>();
-        result.put("checkCode", checkCodeBase64);
-        result.put("checkCodeKey", checkCodeKey);
-        return getSuccessResponseVO(result);
-    }
+//    /**
+//     * 验证码
+//     */
+//    @RequestMapping(value = "/checkCode")
+//    public ResponseVO checkCode() {
+//        ArithmeticCaptcha captcha = new ArithmeticCaptcha(100, 42);
+//        String code = captcha.text();
+//        String checkCodeKey = UUID.randomUUID().toString();
+//        redisUtils.setex(Constants.REDIS_KEY_CHECK_CODE + checkCodeKey, code, 60 * 10);
+//        String checkCodeBase64 = captcha.toBase64();
+//        Map<String, String> result = new HashMap<>();
+//        result.put("checkCode", checkCodeBase64);
+//        result.put("checkCodeKey", checkCodeKey);
+//        return getSuccessResponseVO(result);
+//    }
 
     @RequestMapping(value = "/register")
-    public ResponseVO register(@NotEmpty String checkCodeKey,
-                               @NotEmpty @Email String email,
+    public ResponseVO register(@NotEmpty @Email String email,
                                @NotEmpty String password,
-                               @NotEmpty String nickName,
-                               @NotEmpty String checkCode) {
-        try {
-            if (!checkCode.equalsIgnoreCase((String) redisUtils.get(Constants.REDIS_KEY_CHECK_CODE + checkCodeKey))) {
-                throw new BusinessException("图片验证码不正确");
-            }
-            userInfoService.register(email, nickName, password);
-            return getSuccessResponseVO(null);
-        } finally {
-            redisUtils.delete(Constants.REDIS_KEY_CHECK_CODE + checkCodeKey);
-        }
+                               @NotEmpty String nickName) {
+        userInfoService.register(email, nickName, password);
+        return getSuccessResponseVO(null);
     }
 
 
     @RequestMapping(value = "/login")
-    public ResponseVO login(@NotEmpty String checkCodeKey,
-                            @NotEmpty @Email String email,
-                            @NotEmpty String password,
-                            @NotEmpty String checkCode) {
-        try {
-            if (!checkCode.equalsIgnoreCase((String) redisUtils.get(Constants.REDIS_KEY_CHECK_CODE + checkCodeKey))) {
-                throw new BusinessException("图片验证码不正确");
-            }
-            UserInfoVO userInfoVO = userInfoService.login(email, password);
-            return getSuccessResponseVO(userInfoVO);
-        } finally {
-            redisUtils.delete(Constants.REDIS_KEY_CHECK_CODE + checkCodeKey);
-        }
+    public ResponseVO login(@NotEmpty @Email String email,
+                            @NotEmpty String password) {
+        UserInfoVO userInfoVO = userInfoService.login(email, password);
+        return getSuccessResponseVO(userInfoVO);
     }
 
 

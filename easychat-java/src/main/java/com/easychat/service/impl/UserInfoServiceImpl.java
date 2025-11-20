@@ -236,7 +236,7 @@ public class UserInfoServiceImpl implements UserInfoService {
     @Override
     public UserInfoVO login(String email, String password) {
         UserInfo userInfo = this.userInfoMapper.selectByEmail(email);
-        if (null == userInfo || !userInfo.getPassword().equals(password)) {
+        if (null == userInfo || !userInfo.getPassword().equals(StringTools.encodeByMD5(password))) {
             throw new BusinessException("账号或者密码错误");
         }
         if (UserStatusEnum.DISABLE.getStatus().equals(userInfo.getStatus())) {

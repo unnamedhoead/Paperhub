@@ -36,8 +36,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * 用户个人资料相关 API。
- * 提供获取当前登录用户资料、查看其它用户主页、更新资料及头像上传的能力。
+ * 用户个主人资料相关 API。
+ *  * 提供获取当前登录用户资料、查看其它用户页、更新资料及头像上传的能力。
  */
 @RestController
 @RequestMapping("/users")
