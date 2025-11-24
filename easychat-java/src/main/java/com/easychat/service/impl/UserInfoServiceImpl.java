@@ -8,14 +8,14 @@ import com.easychat.entity.enums.*;
 import com.easychat.entity.po.GroupInfo;
 import com.easychat.entity.po.UserContact;
 import com.easychat.entity.po.UserInfo;
-import com.easychat.entity.po.UserInfoBeauty;
+
 import com.easychat.entity.query.*;
 import com.easychat.entity.vo.PaginationResultVO;
 import com.easychat.entity.vo.UserInfoVO;
 import com.easychat.exception.BusinessException;
 import com.easychat.mappers.GroupInfoMapper;
 import com.easychat.mappers.UserContactMapper;
-import com.easychat.mappers.UserInfoBeautyMapper;
+
 import com.easychat.mappers.UserInfoMapper;
 import com.easychat.redis.RedisComponet;
 import com.easychat.service.ChatSessionUserService;
@@ -68,8 +68,6 @@ public class UserInfoServiceImpl implements UserInfoService {
     @Resource
     private UserContactService userContactService;
 
-    @Resource
-    private UserInfoBeautyMapper<UserInfoBeauty, UserInfoBeautyQuery> userInfoBeautyMapper;
 
     /**
      * 根据条件查询列表
@@ -208,12 +206,6 @@ public class UserInfoServiceImpl implements UserInfoService {
         Date curDate = new Date();
         String userId = StringTools.getUserId();
 
-        //查询邮箱是否需要设置靓号
-        UserInfoBeauty beautyAccount = this.userInfoBeautyMapper.selectByEmail(email);
-        Boolean useBeautyAccount = null != beautyAccount && BeautyAccountStatusEnum.NO_USE.getStatus().equals(beautyAccount.getStatus());
-        if (useBeautyAccount) {
-            userId = UserContactTypeEnum.USER.getPrefix() + beautyAccount.getUserId();
-        }
         userInfo = new UserInfo();
         userInfo.setUserId(userId);
         userInfo.setNickName(nickName);
@@ -223,12 +215,7 @@ public class UserInfoServiceImpl implements UserInfoService {
         userInfo.setStatus(UserStatusEnum.ENABLE.getStatus());
         userInfo.setLastOffTime(curDate.getTime());
         this.userInfoMapper.insert(userInfo);
-        //更新靓号状态
-        if (useBeautyAccount) {
-            UserInfoBeauty updateBeauty = new UserInfoBeauty();
-            updateBeauty.setStatus(BeautyAccountStatusEnum.USEED.getStatus());
-            this.userInfoBeautyMapper.updateById(updateBeauty, beautyAccount.getId());
-        }
+
         //创建机器人好友
         userContactService.addContact4Robot(userId);
     }

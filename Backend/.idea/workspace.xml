@@ -36,6 +36,7 @@
     "ModuleVcsDetector.initialDetectionPerformed": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
+    "Spring Boot.PaperhubApplication.executor": "Run",
     "dart.analysis.tool.window.visible": "false",
     "git-widget-placeholder": "53-easychat",
     "ignore.virus.scanning.warn.message": "true",
@@ -81,6 +82,7 @@
       <option name="presentableId" value="Default" />
       <updated>1763511710798</updated>
       <workItem from="1763624143258" duration="3880000" />
+      <workItem from="1763975213469" duration="738000" />
     </task>
     <servers />
   </component>
