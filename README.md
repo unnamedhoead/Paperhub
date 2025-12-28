@@ -80,12 +80,13 @@ java -jar target/paperhub-*.jar
 cd Frontend
 flutter pub get              # 安装依赖
 flutter run -d chrome        # Web 调试
+```
 
 `main()` 启动时会初始化 `SharedPreferences` 并检查本地 token：若未过期则直接进入首页，否则跳转登录；收到 401 会自动调用 `/auth/refresh` 更新 token 并重放原请求。
 
 ---
 
-## 使用说明
+## 功能
 
 ### 用户注册与登录
 
@@ -181,169 +182,66 @@ flutter run -d chrome        # Web 调试
 
 ## 部署指南
 
-### CI/CD 配置
+### 华为云云端部署流程
 
-项目使用 GitLab CI/CD 进行自动化构建和部署，配置文件为 `.gitlab-ci.yml`。
-
-#### 构建流程
-
-CI/CD 流程包含以下阶段：
-
-1. **前端构建** (`build_frontend`)
-   - 使用 Flutter 3.35.7 镜像
-   - 执行 `flutter pub get` 安装依赖
-   - 执行 `flutter build web --release` 构建 Web 版本
-   - 产物：`Frontend/build/web`
-
-2. **后端构建** (`build_backend`)
-   - 使用 Maven 3.9.9 + JDK 17 镜像
-   - 执行 `mvn clean package -DskipTests` 打包
-   - 产物：`Backend/paperhub/target/*.jar`
-
-3. **测试** (`test`)
-   - 执行后端验证（当前跳过单元测试）
-   - 确保构建产物可用
-
-4. **部署** (`deploy`)
-   - 根据分支策略自动部署到对应环境
-
-#### 触发条件
-
-- **合并请求**：创建或更新 MR 时触发构建
-- **推送事件**：推送到 `main`、`develop` 或 `local-upload` 分支时触发
-- **Runner 要求**：需要配置带有 `前端` 和 `后端` 标签的自定义 Runner
-
-#### 手动部署
-
-##### 后端部署
-
-1. **构建 JAR 包**
-   ```bash
-   cd Backend/paperhub
-   mvn clean package -DskipTests
-   ```
-
-2. **运行 JAR 包**
-   ```bash
-   java -jar target/paperhub-*.jar
-   ```
-
-3. **使用 systemd 管理（Linux）**
-   ```bash
-   # 创建服务文件 /etc/systemd/system/paperhub.service
-   [Unit]
-   Description=PaperHub Backend Service
-   After=network.target mysql.service
-
-   [Service]
-   Type=simple
-   User=your-user
-   WorkingDirectory=/path/to/paperhub/Backend/paperhub
-   ExecStart=/usr/bin/java -jar target/paperhub-*.jar
-   Restart=always
-   RestartSec=10
-
-   [Install]
-   WantedBy=multi-user.target
-   ```
-
-4. **启动服务**
-   ```bash
-   sudo systemctl enable paperhub
-   sudo systemctl start paperhub
-   sudo systemctl status paperhub
-   ```
-
-##### 前端部署
-
-1. **构建 Web 版本**
-   ```bash
-   cd Frontend
-   flutter pub get
-   flutter build web --release
-   ```
-
-2. **部署到 Web 服务器**
-
-   **Nginx 配置示例**：
-   ```nginx
-   server {
-       listen 80;
-       server_name your-domain.com;
-       root /path/to/paperhub/Frontend/build/web;
-       index index.html;
-
-       location / {
-           try_files $uri $uri/ /index.html;
-       }
-
-       # API 代理
-       location /api {
-           proxy_pass http://localhost:8080;
-           proxy_set_header Host $host;
-           proxy_set_header X-Real-IP $remote_addr;
-           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-       }
-   }
-   ```
-
-   **Apache 配置示例**：
-   ```apache
-   <VirtualHost *:80>
-       ServerName your-domain.com
-       DocumentRoot /path/to/paperhub/Frontend/build/web
-
-       <Directory /path/to/paperhub/Frontend/build/web>
-           Options Indexes FollowSymLinks
-           AllowOverride All
-           Require all granted
-       </Directory>
-
-       # API 代理
-       ProxyPass /api http://localhost:8080/api
-       ProxyPassReverse /api http://localhost:8080/api
-   </VirtualHost>
-   ```
-
-3. **部署到静态托管服务**
-   - **GitLab Pages**：将 `Frontend/build/web` 目录内容部署到 GitLab Pages
-   - **Vercel/Netlify**：连接 Git 仓库，设置构建命令为 `cd Frontend && flutter build web`
-
-#### 环境变量配置
-
-部署前需要配置以下环境变量或配置文件：
-
-**后端** (`application.properties`)：
-- 数据库连接信息
-- JWT 密钥
-- OBS 对象存储配置
-- 邮件服务配置
-
-**前端** (`lib/config/app_env.dart`)：
-- API 基础 URL
-- 其他环境相关配置
-
-#### 数据库迁移
-
-部署前需要执行数据库迁移脚本：
+#### 1. 清理并克隆代码仓库
 
 ```bash
-# 执行所有 SQL 脚本
-mysql -u root -p paperhub < Backend/paperhub/REPORT_POST_SYSTEM.sql
-# 其他迁移脚本...
+rm -rf ~/paperhub
+
+git clone https://<账户名>:<可以访问main分支的token>@gitlab.com/tj-cs-swe/CS10102302-2025/group8/paperhub.git
 ```
 
-#### 健康检查
-
-部署后验证服务是否正常运行：
+#### 2. 前端部署
 
 ```bash
-# 后端健康检查
-curl http://localhost:8080/actuator/health
+cd ~/paperhub/Frontend
 
-# 前端访问
-curl http://your-domain.com
+flutter clean
+
+flutter pub get
+
+flutter build web
+
+sudo rm -rf /var/www/html/*
+
+sudo cp -r build/web/* /var/www/html/
+
+sudo systemctl restart nginx
 ```
+
+#### 3. 后端部署
+
+```bash
+# 停止现有 Java 进程
+chmod +x ~/paperhub/Backend/paperhub/mvnw
+
+ps -ef | grep java
+
+# 根据输出找到 Java 进程的 PID，然后执行（替换 <PID> 为实际进程 ID）
+kill -9 <PID>
+
+# 确认进程已停止
+ps -ef | grep java
+
+# 构建后端
+cd ~/paperhub/Backend/paperhub
+
+./mvnw clean package -DskipTests
+
+# 验证构建产物
+ls -l target/
+
+# 创建日志目录并启动服务
+mkdir -p logs
+
+nohup java -jar target/paperhub-0.0.1-SNAPSHOT.jar > logs/spring.log 2>&1 &
+
+# 验证服务已启动
+ps -ef | grep java
+```
+
+> ⚠️ **安全提示**：上述命令中包含 GitLab 访问令牌，请妥善保管，避免泄露。建议在生产环境中使用环境变量或密钥管理服务。
 
 ---
 
