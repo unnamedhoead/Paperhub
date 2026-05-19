@@ -43,3 +43,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Catch all Gradle/Android build outputs at any depth
+**/build/
+android/.gradle/

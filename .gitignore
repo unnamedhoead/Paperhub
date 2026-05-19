@@ -1,4 +1,10 @@
-".idea/" 
-".vscode/" 
-".history/"
+# macOS
+.DS_Store
 
+# IDE / editor configs
+.idea/
+.vscode/
+.history/
+
+# Build outputs (any level)
+**/build/
