@@ -16,7 +16,8 @@ import '../models/post_model.dart';
 import '../screens/post_detail_screen.dart';
 import '../services/api_service.dart';
 import 'video_message_player.dart';
-import 'dart:html' as html if (dart.library.io) 'dart:io';
+import 'html_stub.dart'
+    if (dart.library.html) 'html_web.dart' as html;
 
 class MessageBubble extends StatefulWidget {
   // 缓存帖子详情的 Future，避免反复加载

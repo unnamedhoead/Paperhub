@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'pages/login_page.dart';
 import 'pages/register_page.dart';
 import 'pages/verify_email_page.dart';
@@ -20,42 +19,29 @@ import 'utils/font_utils.dart';
 // 全局导航键，用于在静态上下文中导航
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+void main() {
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
 
-  // 初始化ServicesBinding（用于应用生命周期监听）
-  // 注意：ServicesBinding.instance在Flutter 3.0+中可能为null，需要检查
-  try {
-    // 确保ServicesBinding已初始化
-    if (ServicesBinding.instance == null) {
-      // 在Flutter 3.0+中，可能需要手动初始化
-      // 这里使用try-catch避免崩溃
+    // 初始化本地存储（SharedPreferences），失败时不要让应用崩掉
+    try {
+      await LocalStorage.instance.init();
+    } catch (e, s) {
+      debugPrint('LocalStorage.init failed: $e\n$s');
     }
-  } catch (e) {
-    debugPrint('ServicesBinding初始化失败: $e');
-  }
 
-  // 初始化本地存储（SharedPreferences），失败时不要让应用崩掉
-  try {
-    await LocalStorage.instance.init();
-  } catch (e, s) {
-    debugPrint('LocalStorage.init failed: $e\n$s');
-  }
+    // 捕获 Flutter 框架级错误（包括构建/布局阶段）
+    FlutterError.onError = (details) {
+      FlutterError.presentError(details);
+      debugPrint('FlutterError.onError: ${details.exception}\n${details.stack}');
+    };
 
-  // 捕获 Flutter 框架级错误（包括构建/布局阶段）
-  FlutterError.onError = (details) {
-    FlutterError.presentError(details);
-    debugPrint('FlutterError.onError: ${details.exception}\n${details.stack}');
-  };
+    // 读取主题模式（持久化）
+    final storedTheme = LocalStorage.instance.read('themeMode');
+    final initialThemeMode = _parseThemeMode(storedTheme);
+    // 预判启动路由（避免闪回登录）：有 token 时尝试静默刷新，成功/失败都优先留在首页；无 token 才去登录
+    final initialRoute = await _determineInitialRoute();
 
-  // 读取主题模式（持久化）
-  final storedTheme = LocalStorage.instance.read('themeMode');
-  final initialThemeMode = _parseThemeMode(storedTheme);
-  // 预判启动路由（避免闪回登录）：有 token 时尝试静默刷新，成功/失败都优先留在首页；无 token 才去登录
-  final initialRoute = await _determineInitialRoute();
-
-  // 捕获顶层未处理错误，避免在 Web 上直接变成混淆的 Uncaught Error
-  runZonedGuarded(() {
     runApp(PaperHubApp(
       initialThemeMode: initialThemeMode,
       initialRoute: initialRoute,
