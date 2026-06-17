@@ -6,34 +6,34 @@ import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
 
 /**
- * 简单的WebSocket配置
- * 使用原生WebSocket而不是STOMP
+ * Native (non-STOMP) WebSocket configuration.
+ * Path constants are defined in {@link WsPaths}.
  */
 @Configuration
 @EnableWebSocket
 public class SimpleWebSocketConfig implements WebSocketConfigurer {
+
     private final SimpleWebSocketHandler webSocketHandler;
     private final ChatWebSocketHandler chatWebSocketHandler;
 
     public SimpleWebSocketConfig(SimpleWebSocketHandler webSocketHandler,
-                                ChatWebSocketHandler chatWebSocketHandler) {
+                                 ChatWebSocketHandler chatWebSocketHandler) {
         this.webSocketHandler = webSocketHandler;
         this.chatWebSocketHandler = chatWebSocketHandler;
     }
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
-        registry.addHandler(webSocketHandler, "/ws/posts/{postId}")
-            .setAllowedOrigins("*");
+        registry.addHandler(webSocketHandler, WsPaths.POSTS_TPL)
+                .setAllowedOrigins("*");
 
-        registry.addHandler(webSocketHandler, "/ws/admin")
-            .setAllowedOrigins("*");
+        registry.addHandler(webSocketHandler, WsPaths.ADMIN)
+                .setAllowedOrigins("*");
 
-        registry.addHandler(webSocketHandler, "/ws/notifications/{userId}")
-            .setAllowedOrigins("*");
+        registry.addHandler(webSocketHandler, WsPaths.NOTIFICATIONS_TPL)
+                .setAllowedOrigins("*");
 
-        registry.addHandler(chatWebSocketHandler, "/ws/chat/{userId}")
-            .setAllowedOrigins("*");
+        registry.addHandler(chatWebSocketHandler, WsPaths.CHAT_TPL)
+                .setAllowedOrigins("*");
     }
 }
-
