@@ -57,3 +57,7 @@
 - 合并 P2-home: home_screen 1017→230 + screens/home/ 8 文件(HomeController+2子controller+4widget), 6 增量 commit, analyze 0, 137 tests.
 - **P2 阶段全部完成**: 6 个超标文件全拆(admin/profile/chat/follow/search/home), 全部 ≤300; N3/N4 清理; arxiv/chat/notification_ws service 测试.
 - 启动 Stage2: codex-review P2 批次 (--base 9446f82, 干净临时 worktree).
+
+## Stage2 codex-review P2 — CLEAN
+- codex-review(--base 9446f82, 干净worktree): 零 actionable 功能缺陷, "改动为组件/控制器拆分+测试补充, 测试通过". P2 通过 review.
+- 进入 Stage3 更新 wave2 文档.
