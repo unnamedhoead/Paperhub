@@ -1,15 +1,22 @@
-/// PaperHub 首页（发现流 + 分区占位）
+/// PaperHub 首页（关注流 / 发现流 / 分区流）——薄组合层。
 ///
-/// 职责与交互：
-/// - 展示“发现”瀑布流内容，委托给 [FeedWidget]。
-/// - 顶部切换“关注/发现/分区”，关注和分区各自管理帖子流。
-/// - 右上角搜索入口 -> `SearchScreen`。
-/// - 卡片点击 -> `PostDetailScreen`。
-/// - 底部导航：消息页、发布弹窗、个人页的跳转与返回后高亮恢复。
+/// 本文件只做"页面状态协调 + 组合"：数据状态与加载逻辑在 [HomeController]
+/// （及其 Following/Zone 子控制器）；各区块为独立 Widget：
+/// - 顶部切换栏 -> [HomeTabBar]
+/// - 关注流 -> [FollowingFeed]
+/// - 发现流 -> [FeedWidget]（通过 [_feedKey] 触发刷新）
+/// - 分区流 -> [ZoneTab]
+/// - 底部导航跳转 -> [HomeBottomNav]
+///
+/// Screen 仅持有依赖 UI 上下文的资源：FeedWidget 的 GlobalKey、关注流
+/// ScrollController、底部导航高亮索引；并负责 Navigator 跳转（搜索/详情/
+/// 消息/发布/个人页）与跳转返回后的状态恢复。
 ///
 /// 约定与注意：
-/// - 导航返回后，通过 `then` 回调恢复首页 tab 高亮（`_currentIndex = 0`）。
-/// - 释放资源：在 `dispose` 中释放 `ScrollController`。
+/// - Screen `addListener(() => setState(() {}))` 监听 [HomeController]，
+///   每次 notify 触发整页 rebuild。
+/// - 导航返回后通过回调恢复首页 tab 高亮（`_currentIndex = 0`）。
+/// - 释放资源：在 `dispose` 中释放 `ScrollController` 与 [HomeController]。
 ///
 import 'package:flutter/material.dart';
 import '../models/post_model.dart';
