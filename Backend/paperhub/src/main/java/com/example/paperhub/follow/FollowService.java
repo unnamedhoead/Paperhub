@@ -5,6 +5,8 @@ import com.example.paperhub.auth.UserRepository;
 import com.example.paperhub.auth.UserStatus;
 import com.example.paperhub.notification.NotificationService;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -15,6 +17,9 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class FollowService {
+
+    private static final Logger log = LoggerFactory.getLogger(FollowService.class);
+
     private final UserFollowRepository followRepository;
     private final UserRepository userRepository;
     private final NotificationService notificationService;
@@ -50,7 +55,7 @@ public class FollowService {
             notificationService.createFollowNotification(follower, targetUserId);
         } catch (Exception e) {
             // 通知创建失败不影响关注操作
-            System.err.println("创建关注通知失败: " + e.getMessage());
+            log.error("创建关注通知失败", e);
         }
     }
 

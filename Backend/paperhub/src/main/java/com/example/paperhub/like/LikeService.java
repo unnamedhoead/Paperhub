@@ -8,6 +8,8 @@ import com.example.paperhub.notification.NotificationService;
 import com.example.paperhub.post.Post;
 import com.example.paperhub.post.PostRepository;
 import com.example.paperhub.post.PostService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,6 +17,8 @@ import java.util.Optional;
 
 @Service
 public class LikeService {
+    private static final Logger log = LoggerFactory.getLogger(LikeService.class);
+
     private final PostLikeRepository postLikeRepository;
     private final CommentLikeRepository commentLikeRepository;
     private final PostRepository postRepository;
@@ -45,7 +49,7 @@ public class LikeService {
         ensureUserCanInteract(user);
         Post post = postRepository.findById(postId)
             .orElseThrow(() -> new IllegalArgumentException("帖子不存在"));
-        
+
         // 检查是否已经点赞
         Optional<PostLike> existingLike = postLikeRepository.findByPostAndUser(post, user);
         if (existingLike.isPresent()) {
@@ -59,19 +63,17 @@ public class LikeService {
         like.setUser(user);
         postLikeRepository.save(like);
 
-        // 更新帖子点赞数（从数据库统计，确保一致性）
-        long actualCount = postLikeRepository.countByPostId(postId);
-        post.setLikesCount((int) actualCount);
-        postRepository.save(post);
-        
+        // 原子递增帖子点赞数
+        postLikeRepository.incrementPostLikesCount(postId, 1);
+
         // 创建通知
         try {
             notificationService.createPostLikeNotification(user, postId);
         } catch (Exception e) {
             // 通知创建失败不影响点赞操作
-            System.err.println("创建点赞通知失败: " + e.getMessage());
+            log.warn("创建点赞通知失败, postId={}, userId={}", postId, user.getId(), e);
         }
-        
+
         return true; // 点赞成功
     }
 
@@ -83,7 +85,7 @@ public class LikeService {
         ensureUserCanInteract(user);
         Post post = postRepository.findById(postId)
             .orElseThrow(() -> new IllegalArgumentException("帖子不存在"));
-        
+
         Optional<PostLike> existingLike = postLikeRepository.findByPostAndUser(post, user);
         if (existingLike.isEmpty()) {
             // 未点赞，直接返回成功（幂等性）
@@ -92,12 +94,10 @@ public class LikeService {
 
         // 删除点赞记录
         postLikeRepository.delete(existingLike.get());
-        
-        // 更新帖子点赞数（从数据库统计，确保一致性）
-        long actualCount = postLikeRepository.countByPostId(postId);
-        post.setLikesCount((int) actualCount);
-        postRepository.save(post);
-        
+
+        // 原子递减帖子点赞数
+        postLikeRepository.incrementPostLikesCount(postId, -1);
+
         return true;
     }
 
@@ -114,19 +114,11 @@ public class LikeService {
     public long getPostLikesCount(Long postId) {
         try {
             long count = postLikeRepository.countByPostId(postId);
-            // 同步更新Post实体的likesCount字段，保持一致性
-            postRepository.findById(postId).ifPresent(post -> {
-                if (post.getLikesCount() != (int) count) {
-                    post.setLikesCount((int) count);
-                    postRepository.save(post);
-                }
-            });
+            postLikeRepository.setPostLikesCount(postId, (int) count);
             return count;
         } catch (Exception e) {
-            System.err.println("获取点赞数失败: " + e.getMessage());
-            e.printStackTrace();
-            // 如果查询失败，返回0，避免影响主流程
-            return 0;
+            log.error("获取帖子点赞数失败, postId={}", postId, e);
+            throw new RuntimeException("获取帖子点赞数失败", e);
         }
     }
 
@@ -138,7 +130,7 @@ public class LikeService {
         ensureUserCanInteract(user);
         Comment comment = commentRepository.findById(commentId)
             .orElseThrow(() -> new IllegalArgumentException("评论不存在"));
-        
+
         // 检查是否已经点赞
         Optional<CommentLike> existingLike = commentLikeRepository.findByCommentAndUser(comment, user);
         if (existingLike.isPresent()) {
@@ -151,20 +143,18 @@ public class LikeService {
         like.setComment(comment);
         like.setUser(user);
         commentLikeRepository.save(like);
-        
-        // 更新评论点赞数（从数据库统计，确保一致性）
-        long actualCount = commentLikeRepository.countByCommentId(commentId);
-        comment.setLikesCount((int) actualCount);
-        commentRepository.save(comment);
-        
+
+        // 原子递增评论点赞数
+        commentLikeRepository.incrementCommentLikesCount(commentId, 1);
+
         // 创建通知
         try {
             notificationService.createCommentLikeNotification(user, commentId);
         } catch (Exception e) {
             // 通知创建失败不影响点赞操作
-            System.err.println("创建评论点赞通知失败: " + e.getMessage());
+            log.warn("创建评论点赞通知失败, commentId={}, userId={}", commentId, user.getId(), e);
         }
-        
+
         return true; // 点赞成功
     }
 
@@ -176,7 +166,7 @@ public class LikeService {
         ensureUserCanInteract(user);
         Comment comment = commentRepository.findById(commentId)
             .orElseThrow(() -> new IllegalArgumentException("评论不存在"));
-        
+
         Optional<CommentLike> existingLike = commentLikeRepository.findByCommentAndUser(comment, user);
         if (existingLike.isEmpty()) {
             // 未点赞，直接返回成功（幂等性）
@@ -185,12 +175,10 @@ public class LikeService {
 
         // 删除点赞记录
         commentLikeRepository.delete(existingLike.get());
-        
-        // 更新评论点赞数（从数据库统计，确保一致性）
-        long actualCount = commentLikeRepository.countByCommentId(commentId);
-        comment.setLikesCount((int) actualCount);
-        commentRepository.save(comment);
-        
+
+        // 原子递减评论点赞数
+        commentLikeRepository.incrementCommentLikesCount(commentId, -1);
+
         return true;
     }
 
@@ -207,19 +195,11 @@ public class LikeService {
     public long getCommentLikesCount(Long commentId) {
         try {
             long count = commentLikeRepository.countByCommentId(commentId);
-            // 同步更新Comment实体的likesCount字段，保持一致性
-            commentRepository.findById(commentId).ifPresent(comment -> {
-                if (comment.getLikesCount() != (int) count) {
-                    comment.setLikesCount((int) count);
-                    commentRepository.save(comment);
-                }
-            });
+            commentLikeRepository.setCommentLikesCount(commentId, (int) count);
             return count;
         } catch (Exception e) {
-            System.err.println("获取评论点赞数失败: " + e.getMessage());
-            e.printStackTrace();
-            // 如果查询失败，返回0，避免影响主流程
-            return 0;
+            log.error("获取评论点赞数失败, commentId={}", commentId, e);
+            throw new RuntimeException("获取评论点赞数失败", e);
         }
     }
 
@@ -238,4 +218,3 @@ public class LikeService {
         }
     }
 }
-
