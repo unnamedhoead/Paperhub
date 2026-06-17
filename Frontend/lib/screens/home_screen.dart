@@ -1,30 +1,17 @@
 /// PaperHub 首页（发现流 + 分区占位）
 ///
 /// 职责与交互：
-/// - 展示“发现”瀑布流内容，支持下拉加载更多（懒加载）。
-/// - 顶部切换“发现/分区”，分区暂为占位内容。
+/// - 展示“发现”瀑布流内容，委托给 [FeedWidget]。
+/// - 顶部切换“关注/发现/分区”，关注和分区各自管理帖子流。
 /// - 右上角搜索入口 -> `SearchScreen`。
 /// - 卡片点击 -> `PostDetailScreen`。
 /// - 底部导航：消息页、发布弹窗、个人页的跳转与返回后高亮恢复。
 ///
-/// 分页/加载策略：
-/// - 初始加载前 6 条（模拟接口返回），后续每次追加 6 条。
-/// - 当滚动至底部上方 200 像素时触发加载。
-/// - `_isLoading` 防抖，`_hasMore` 控制是否还有数据。
-///
-/// 组件说明：
-/// - 使用 `MasonryGridView` 构建瀑布流（2 列，间距 8）。
-/// - 末尾附加一个“加载中/没有更多”指示项（通过 `itemCount` +1 实现）。
-///
 /// 约定与注意：
-/// - `mockPosts` 为演示数据源，后续可替换为异步接口。
-/// - `nextEnd = clamp(0, mockPosts.length)` 保证 sublist 不越界。
 /// - 导航返回后，通过 `then` 回调恢复首页 tab 高亮（`_currentIndex = 0`）。
 /// - 释放资源：在 `dispose` 中释放 `ScrollController`。
 ///
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/scheduler.dart';
 import '../models/post_model.dart';
 import '../widgets/post_card.dart';
 import 'search_screen.dart';
@@ -33,6 +20,7 @@ import 'message_screen.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'post_detail_screen.dart';
 import '../widgets/bottom_navigation.dart';
+import '../widgets/feed_widget.dart';
 import '../pages/note_editor_page.dart';
 import '../services/api_service.dart';
 import '../services/chat_service.dart';
@@ -42,7 +30,6 @@ import '../models/notification_model.dart';
 import '../services/local_storage.dart';
 import '../services/browse_history_service.dart';
 import '../constants/discipline_constants.dart';
-import '../models/user_profile.dart';
 import '../constants/app_colors.dart';
 import '../utils/font_utils.dart';
 
@@ -67,24 +54,16 @@ class _HomeScreenState extends State<HomeScreen> {
   /// 底部导航当前索引（0=首页，1=消息，2=发布，3=我的）。
   int _currentIndex = 0;
 
-  /// 用于监听列表滚动，判断是否接近底部以触发加载更多。
-  final ScrollController _scrollController = ScrollController();
-
-  /// 加载中标记，用于防止并发重复加载。
-  bool _isLoading = false;
-
-  /// 是否还有更多数据（由当前已加载数量与数据源长度决定）。
-  bool _hasMore = true; //  是否还有更多数据
-  /// 已加载到页面上的帖子列表。
-  final List<Post> _posts = [];
-  
-  /// 点赞操作防抖集合（防止重复请求）
+  /// 点赞操作防抖集合（防止重复请求，供关注/分区流使用）
   final Set<String> _likeInFlight = {};
 
-  /// 顶部 tab 选择（0=发现，1=分区）。
+  /// 顶部 tab 选择
   /// 0=关注, 1=发现, 2=分区
   int _selectedTab = 1;
   final ChatService _chatService = ChatService();
+
+  /// 发现流独立组件的 key，用于触发刷新
+  final GlobalKey<FeedWidgetState> _feedKey = GlobalKey<FeedWidgetState>();
 
   /// 分区页当前选中的主分区
   String _currentZoneDiscipline = kMainDisciplines.first;
@@ -117,21 +96,12 @@ class _HomeScreenState extends State<HomeScreen> {
   /// 当前用户刚发布的帖子（优先展示在发现页顶部，直到刷新/离开）
   Post? _pinnedSelfPost;
 
-  /// 是否对发现流使用“热度排序”（用户画像不足或推荐分过低时启用）
-  bool _useHotRanking = false;
-
-  UserProfile? _currentUserProfile;
-
   @override
   void initState() {
     super.initState();
-    // 初始化加载首屏数据，并注册滚动监听。
-    _loadInitialPosts();
-    _scrollController.addListener(_scrollListener);
     _followingScrollController.addListener(_followingScrollListener);
     _preloadUnreadBadges();
     _loadViewedPostIds();
-    _evaluateUserSignals();
     _loadLastFollowingSeenFromStorage();
     // 初始进入首页也要检查关注流，便于及时展示红点
     _refreshFollowingFeed();
@@ -232,226 +202,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// 初始加载首屏内容
-  Future<void> _loadInitialPosts() async {
-    if (_isLoading) return;
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      // 首页默认使用推荐接口（已登录时会根据兴趣排序，未登录则等价于按时间排序）
-      final resp = await ApiService.getRecommendedPosts(page: 1, pageSize: 6);
-      final status = resp['statusCode'] as int? ?? 500;
-      final body = resp['body'] as Map<String, dynamic>?;
-
-      // 移除调试日志，减少控制台输出
-
-      if (status >= 200 && status < 300 && body != null) {
-        final postsData = (body['posts'] as List<dynamic>?) ?? <dynamic>[];
-        final total = body['total'] as int? ?? 0;
-
-        final newPosts = postsData
-            .map((p) => Post.fromJson(p as Map<String, dynamic>))
-            .toList();
-
-        final bool useHot = _shouldUseHotRankingOnChunk(newPosts);
-        final List<Post> ordered = useHot ? _sortedByHeat(newPosts) : newPosts;
-
-        // 检查是否有"刚发布的新帖子"需要置顶展示
-        Post? pinnedFromStorage = _consumeLastCreatedPostForPin(ordered);
-
-        setState(() {
-          _useHotRanking = useHot;
-          if (pinnedFromStorage != null) {
-            _pinnedSelfPost = pinnedFromStorage;
-          }
-          _posts.clear();
-          _posts.addAll(ordered);
-          _hasMore = _posts.length < total;
-          _isLoading = false;
-        });
-      } else {
-        setState(() {
-          _isLoading = false;
-        });
-        // 显示更详细的错误信息
-        final errorMsg = body != null && body['message'] != null
-            ? '加载失败: ${body['message']}'
-            : '加载失败: HTTP $status，请确保后端服务已启动 (http://localhost:8080)';
-        // 移除调试日志
-
-        // 如果后端失败，可以使用模拟数据作为降级方案（可选）
-        // 取消下面的注释以启用降级方案
-        /*
-        if (_posts.isEmpty) {
-          // 使用模拟数据作为降级方案
-          final mockData = mockPosts.take(6).toList();
-          setState(() {
-            _posts.addAll(mockData);
-            _hasMore = mockData.length < mockPosts.length;
-            _isLoading = false;
-          });
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('使用演示数据（后端连接失败）'),
-                duration: Duration(seconds: 3),
-              ),
-            );
-          }
-          return;
-        }
-        */
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(errorMsg),
-              duration: const Duration(seconds: 5),
-            ),
-          );
-        }
-      }
-    } catch (e, stackTrace) {
-      setState(() {
-        _isLoading = false;
-      });
-      // 移除调试日志，只在用户界面显示错误提示
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('网络错误: $e\n请确保后端服务已启动 (http://localhost:8080)'),
-            duration: const Duration(seconds: 5),
-          ),
-        );
-      }
-    }
-  }
-
-  /// 刷新第一页（用于发布后获取最新内容）
-  Future<void> _refreshFirstPage() async {
-    try {
-      final resp = await ApiService.getRecommendedPosts(page: 1, pageSize: 6);
-      final status = resp['statusCode'] as int? ?? 500;
-      final body = resp['body'] as Map<String, dynamic>?;
-
-      if (status >= 200 && status < 300 && body != null) {
-        final postsData = (body['posts'] as List<dynamic>?) ?? <dynamic>[];
-        final total = body['total'] as int? ?? 0;
-
-        final newPosts = postsData
-            .map((p) => Post.fromJson(p as Map<String, dynamic>))
-            .toList();
-
-        setState(() {
-          // 插入新帖子到列表开头，但避免重复
-          for (var newPost in newPosts) {
-            if (!_posts.any((p) => p.id == newPost.id)) {
-              if (_useHotRanking) {
-                _posts.add(newPost);
-              } else {
-                _posts.insert(0, newPost);
-              }
-            }
-          }
-          if (_useHotRanking) {
-            _posts
-              ..clear()
-              ..addAll(_sortedByHeat([..._posts]));
-          }
-          _hasMore = _posts.length < total;
-        });
-      }
-    } catch (e) {
-      // 忽略错误
-    }
-
-    // 同步刷新关注流，方便在其他页面刷新时获取最新关注动态
-    _refreshFollowingFeed();
-  }
-
-  /// 手动刷新推荐流：回到顶部、清空现有列表并重新请求第一页
-  Future<void> _reloadDiscoverFeed() async {
-    if (_isLoading) return;
-
-    // 回到顶部避免加载时跳动
-    if (_scrollController.hasClients) {
-      _scrollController.animateTo(
-        0,
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOut,
-      );
-    }
-
-    setState(() {
-      _pinnedSelfPost = null;
-      _posts.clear();
-      _hasMore = true;
-    });
-
-    await Future.wait([
-      _loadInitialPosts(),
-      _refreshFollowingFeed(),
-    ]);
-  }
-
-  /// 触底后加载下一页（每次追加 6 条）
-  Future<void> _loadMorePosts() async {
-    if (_isLoading || !_hasMore) return;
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      final currentPage = (_posts.length ~/ 6) + 1;
-      final resp = await ApiService.getRecommendedPosts(page: currentPage, pageSize: 6);
-      final status = resp['statusCode'] as int? ?? 500;
-      final body = resp['body'] as Map<String, dynamic>?;
-
-      if (status >= 200 && status < 300 && body != null) {
-        final postsData = (body['posts'] as List<dynamic>?) ?? <dynamic>[];
-        final total = body['total'] as int? ?? 0;
-
-        final newPosts = postsData
-            .map((p) => Post.fromJson(p as Map<String, dynamic>))
-            .toList();
-
-        final bool useHot = _shouldUseHotRankingOnChunk(newPosts);
-        final combined = [..._posts, ...newPosts];
-        final ordered = useHot ? _sortedByHeat(combined) : combined;
-
-        setState(() {
-          _useHotRanking = useHot;
-          _posts
-            ..clear()
-            ..addAll(ordered);
-          _hasMore = _posts.length < total;
-          _isLoading = false;
-        });
-      } else {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
-    }
-  }
-
-  /// 当滚动距离接近底部（距离最大可滚动距离 200 像素以内）时，触发分页加载。
-  /// 可根据需求调整 200 的阈值，平衡提前加载与性能。
-  void _scrollListener() {
-    if (_scrollController.offset >=
-        _scrollController.position.maxScrollExtent - 200) {
-      _loadMorePosts();
-    }
-  }
-
   /// 关注流：初次加载
   Future<void> _loadInitialFollowingPosts() async {
     if (_followingLoading) return;
@@ -483,7 +233,7 @@ class _HomeScreenState extends State<HomeScreen> {
             .map((p) => Post.fromJson(p as Map<String, dynamic>))
             .toList();
 
-        // 如果还没有记录“看过的关注顶部帖子”，先记录一次，避免新建 Home 实例时误亮红点
+        // 如果还没有记录"看过的关注顶部帖子"，先记录一次，避免新建 Home 实例时误亮红点
         if (_lastFollowingTopPostIdSeen == null && newPosts.isNotEmpty) {
           _updateLastFollowingSeen(newPosts.first.id);
         }
@@ -591,7 +341,7 @@ class _HomeScreenState extends State<HomeScreen> {
             .map((p) => Post.fromJson(p as Map<String, dynamic>))
             .toList();
 
-        // 如果还没有记录“看过的关注顶部帖子”，先记录一次，避免新建 Home 实例时误亮红点
+        // 如果还没有记录"看过的关注顶部帖子"，先记录一次，避免新建 Home 实例时误亮红点
         if (_lastFollowingTopPostIdSeen == null && newPosts.isNotEmpty) {
           _updateLastFollowingSeen(newPosts.first.id);
         }
@@ -625,30 +375,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// 从本地缓存中读取“刚刚发布的新帖子”，用于在首页临时置顶展示一条
-  /// - 如果推荐流中已经包含这条帖子，会从列表中移除以避免重复
-  /// - 只消费一次，读取后会清空本地缓存
-  Post? _consumeLastCreatedPostForPin(List<Post> currentList) {
-    try {
-      final raw = LocalStorage.instance.read('lastCreatedPost');
-      if (raw == null || raw is! String || raw.trim().isEmpty) {
-        return null;
-      }
-      final decoded = jsonDecode(raw) as Map<String, dynamic>;
-      final pinned = Post.fromJson(decoded);
-
-      // 避免与推荐流中的相同帖子重复展示
-      currentList.removeWhere((p) => p.id == pinned.id);
-
-      // 仅消费一次：清空本地缓存
-      LocalStorage.instance.write('lastCreatedPost', '');
-      return pinned;
-    } catch (e) {
-      // 移除调试日志
-      return null;
-    }
-  }
-
   /// 判断关注流是否有新帖子需要显示红点
   bool _shouldShowFollowingBadge(List<Post> newPosts) {
     if (newPosts.isEmpty) return false;
@@ -658,7 +384,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return _selectedTab != 0 && latestId != _lastFollowingTopPostIdSeen;
   }
 
-  /// 从本地存储恢复最近一次“已看过的关注顶部帖子”
+  /// 从本地存储恢复最近一次"已看过的关注顶部帖子"
   void _loadLastFollowingSeenFromStorage() {
     try {
       final raw = LocalStorage.instance.read('lastFollowingTopIdSeen');
@@ -670,7 +396,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// 更新最近一次“已看过的关注顶部帖子”，并持久化到本地
+  /// 更新最近一次"已看过的关注顶部帖子"，并持久化到本地
   void _updateLastFollowingSeen(String? id) {
     if (id == null || id.isEmpty) return;
     _lastFollowingTopPostIdSeen = id;
@@ -689,9 +415,14 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// 卡片点击 -> 打开详情页
+  /// 发现流帖子点击 -> 打开详情页
+  void _onFeedPostTap(Post post) {
+    _onPostTap(post);
+  }
+
+  /// 通用卡片点击 -> 打开详情页
   void _onPostTap(Post post) {
-    // 本地立即标记为已浏览，移除“未读”红点
+    // 本地立即标记为已浏览，移除"未读"红点
     if (!_viewedPostIds.contains(post.id)) {
       setState(() {
         _viewedPostIds.add(post.id);
@@ -707,42 +438,33 @@ class _HomeScreenState extends State<HomeScreen> {
           if (_pinnedSelfPost?.id == post.id) {
             _pinnedSelfPost = null;
           }
-          _posts.removeWhere((p) => p.id == post.id);
         });
+        // 通知 FeedWidget 刷新（帖子已删除）
+        _feedKey.currentState?.reloadFeed();
         return;
       }
-      // 从详情页返回时，只更新当前帖子的点赞状态，不刷新整个列表
-      final currentPostIndex = _posts.indexWhere((p) => p.id == post.id);
-      if (currentPostIndex != -1) {
-        // 重新获取单个帖子详情，同步点赞状态
-        _syncPostLikeStatus(post.id);
-      } else if (_pinnedSelfPost?.id == post.id) {
+      // 从详情页返回时，尝试同步帖子点赞状态
+      if (_pinnedSelfPost?.id == post.id) {
         _syncPostLikeStatus(post.id);
       }
     });
   }
 
-  /// 同步单个帖子的点赞状态（不影响其他帖子）
+  /// 同步单个帖子的点赞状态（用于置顶帖从详情页返回后更新）
   Future<void> _syncPostLikeStatus(String postId) async {
     try {
       final resp = await ApiService.getPost(postId);
       if (resp['statusCode'] == 200) {
         final body = resp['body'] as Map<String, dynamic>;
         final updatedPost = Post.fromJson(body);
-        final postIndex = _posts.indexWhere((p) => p.id == postId);
-        if (postIndex != -1) {
-          setState(() {
-            _posts[postIndex].likesCount = updatedPost.likesCount;
-            _posts[postIndex].isLiked = updatedPost.isLiked;
-          });
-        } else if (_pinnedSelfPost?.id == postId) {
+        if (_pinnedSelfPost?.id == postId) {
           setState(() {
             _pinnedSelfPost!.likesCount = updatedPost.likesCount;
             _pinnedSelfPost!.isLiked = updatedPost.isLiked;
           });
         }
       }
-    } catch (e) {
+    } catch (_) {
       // 忽略错误，不影响用户体验
     }
   }
@@ -759,9 +481,8 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.of(context).pushNamed('/user/$userId');
   }
 
-  /// 处理帖子点赞（乐观更新，不阻塞UI）
+  /// 处理帖子点赞（关注流与分区流共用）
   Future<bool> _handlePostLike(Post post) async {
-    // 防止重复请求
     if (_likeInFlight.contains(post.id)) {
       return false;
     }
@@ -778,16 +499,30 @@ class _HomeScreenState extends State<HomeScreen> {
         final updatedLikesCount = (body?['likesCount'] as num?)?.toInt();
         final updatedIsLiked = body?['isLiked'] as bool?;
 
-        // 更新帖子状态（只更新单个帖子，不刷新整个列表）
-        final postIndex = _posts.indexWhere((p) => p.id == post.id);
-        if (postIndex != -1) {
+        // 更新关注流中的帖子
+        final followingIdx = _followingPosts.indexWhere((p) => p.id == post.id);
+        if (followingIdx != -1) {
           setState(() {
-            _posts[postIndex].likesCount =
-                updatedLikesCount ?? _posts[postIndex].likesCount;
-            _posts[postIndex].isLiked =
-                updatedIsLiked ?? !_posts[postIndex].isLiked;
+            _followingPosts[followingIdx].likesCount =
+                updatedLikesCount ?? _followingPosts[followingIdx].likesCount;
+            _followingPosts[followingIdx].isLiked =
+                updatedIsLiked ?? !_followingPosts[followingIdx].isLiked;
           });
-        } else if (_pinnedSelfPost?.id == post.id) {
+        }
+
+        // 更新分区流中的帖子
+        final zoneIdx = _zonePosts.indexWhere((p) => p.id == post.id);
+        if (zoneIdx != -1) {
+          setState(() {
+            _zonePosts[zoneIdx].likesCount =
+                updatedLikesCount ?? _zonePosts[zoneIdx].likesCount;
+            _zonePosts[zoneIdx].isLiked =
+                updatedIsLiked ?? !_zonePosts[zoneIdx].isLiked;
+          });
+        }
+
+        // 更新置顶帖
+        if (_pinnedSelfPost?.id == post.id) {
           setState(() {
             _pinnedSelfPost!.likesCount =
                 updatedLikesCount ?? _pinnedSelfPost!.likesCount;
@@ -823,9 +558,12 @@ class _HomeScreenState extends State<HomeScreen> {
               child: _selectedTab == 0
                   ? _buildFollowingTabContent()
                   : _selectedTab == 1
-                      ? (_posts.isEmpty
-                          ? _buildInitialLoading()
-                          : _buildWaterfallGrid())
+                      ? FeedWidget(
+                          key: _feedKey,
+                          pinnedPost: _pinnedSelfPost,
+                          onPostTap: _onFeedPostTap,
+                          onAuthorTap: _openUserProfile,
+                        )
                       : _buildZoneTabContent(), // 分区页
             ),
           ],
@@ -908,7 +646,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       onPressed: widget.onThemeToggle ??
                           () {
-                            final next = isDark ? ThemeMode.light : ThemeMode.dark;
+                            final next =
+                                isDark ? ThemeMode.light : ThemeMode.dark;
                             widget.onThemeModeChanged?.call(next);
                           },
                     );
@@ -930,8 +669,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  //  顶部“发现 / 分区”按钮样式
-  Widget _buildTabButton(String label, int index, {bool showUnreadDot = false}) {
+  // 顶部"关注 / 发现 / 分区"按钮样式
+  Widget _buildTabButton(String label, int index,
+      {bool showUnreadDot = false}) {
     final bool selected = _selectedTab == index;
     return GestureDetector(
       onTap: () {
@@ -945,7 +685,7 @@ class _HomeScreenState extends State<HomeScreen> {
               _updateLastFollowingSeen(_followingPosts.first.id);
             }
           }
-          // 离开发现页即清除置顶的“我刚发的”帖子
+          // 离开发现页即清除置顶的"我刚发的"帖子
           if (index != 1) {
             _pinnedSelfPost = null;
           }
@@ -959,17 +699,15 @@ class _HomeScreenState extends State<HomeScreen> {
             !_zoneLoading &&
             _zoneHasMore) {
           _loadZonePosts();
-        } else if (index == 1 && !_isLoading) {
+        } else if (index == 1) {
           // 从其他 tab 切回发现时，触发一次关注流刷新以获取最新关注动态
           _refreshFollowingFeed();
         }
 
-        // 点击“发现”文案时，触发刷新推荐流（小红书同款）
+        // 点击"发现"文案时，触发刷新推荐流（小红书同款）
         if (index == 1 && wasSelected) {
-          _reloadDiscoverFeed();
-        } else if (index == 1 && _posts.isEmpty && !_isLoading) {
-          // 切换回发现页且列表为空时补充首屏数据
-          _loadInitialPosts();
+          _pinnedSelfPost = null;
+          _feedKey.currentState?.reloadFeed();
         }
       },
       child: Stack(
@@ -997,168 +735,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
-        ],
-      ),
-    );
-  }
-
-  /// 瀑布流内容区
-  /// - `itemCount` 在加载中时额外 +1 用作显示底部加载指示器。
-  /// - 使用 `MasonryGridView.count` 创建 2 列错落网格。
-  Widget _buildWaterfallGrid() {
-    final bool hasPinned = _pinnedSelfPost != null;
-    final int baseCount = _posts.length + (hasPinned ? 1 : 0);
-    final int totalCount = baseCount + (_isLoading ? 1 : 0);
-
-    return MasonryGridView.count(
-      controller: _scrollController,
-      crossAxisCount: 2,
-      crossAxisSpacing: 3,
-      mainAxisSpacing: 3,
-      padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
-      itemCount: totalCount,
-      itemBuilder: (context, index) {
-        if (index == baseCount) {
-          return _buildLoadMoreIndicator();
-        }
-        final Post target =
-            hasPinned ? (index == 0 ? _pinnedSelfPost! : _posts[index - 1]) : _posts[index];
-        return PostCard(
-          post: target,
-          onTap: () => _onPostTap(target),
-          onAuthorTap: () => _openUserProfile(target.author.id),
-          onLikeTap: _handlePostLike,
-        );
-      },
-    );
-  }
-
-  /// 检查用户画像信号，决定是否使用热度排序兜底
-  Future<void> _evaluateUserSignals() async {
-    // 检查是否有 token，没有 token 就不发起需要认证的请求
-    final token = LocalStorage.instance.read('accessToken');
-    if (token == null || token.isEmpty) {
-      // 未登录，尝试从本地缓存读取
-      try {
-        final cached = LocalStorage.instance.read('currentUser');
-        if (cached != null) {
-          final decoded = jsonDecode(cached) as Map<String, dynamic>;
-          final profile = UserProfile.fromJson(decoded);
-          final bool missingDirections = profile.researchDirections.isEmpty;
-          setState(() {
-            _currentUserProfile = profile;
-            _useHotRanking = missingDirections || _useHotRanking;
-          });
-          if (_useHotRanking && _posts.isNotEmpty) {
-            _sortDiscoverByHeat();
-          }
-        }
-      } catch (_) {
-        // 忽略本地读取异常
-      }
-      return; // 未登录，不请求网络
-    }
-
-    try {
-      final resp = await ApiService.getCurrentUserProfile();
-      if (resp['statusCode'] == 200) {
-        final body = resp['body'] as Map<String, dynamic>?;
-        if (body != null) {
-          final profile = UserProfile.fromJson(body);
-          final bool missingDirections = profile.researchDirections.isEmpty;
-          setState(() {
-            _currentUserProfile = profile;
-            _useHotRanking = missingDirections || _useHotRanking;
-          });
-          if (_useHotRanking && _posts.isNotEmpty) {
-            _sortDiscoverByHeat();
-          }
-          return;
-        }
-      }
-    } catch (_) {
-      // 忽略异常，尝试读取本地缓存
-    }
-
-    try {
-      final cached = LocalStorage.instance.read('currentUser');
-      if (cached != null) {
-        final decoded = jsonDecode(cached) as Map<String, dynamic>;
-        final profile = UserProfile.fromJson(decoded);
-        final bool missingDirections = profile.researchDirections.isEmpty;
-        setState(() {
-          _currentUserProfile = profile;
-          _useHotRanking = missingDirections || _useHotRanking;
-        });
-        if (_useHotRanking && _posts.isNotEmpty) {
-          _sortDiscoverByHeat();
-        }
-      }
-    } catch (_) {
-      // 忽略本地读取异常
-    }
-  }
-
-  double _computeHeat(Post p) =>
-      p.likesCount +
-      p.commentsCount * 0.5 +
-      p.searchHistoryScore * 1.0;
-
-  List<Post> _sortedByHeat(List<Post> list) {
-    final sorted = [...list];
-    sorted.sort((a, b) => _computeHeat(b).compareTo(_computeHeat(a)));
-    return sorted;
-  }
-
-  void _sortDiscoverByHeat() {
-    final sorted = _sortedByHeat(_posts);
-    setState(() {
-      _posts
-        ..clear()
-        ..addAll(sorted);
-    });
-  }
-
-  bool _shouldUseHotRankingOnChunk(List<Post> chunk) {
-    if (chunk.isEmpty) return _useHotRanking;
-    final weakRecommendation = chunk.every((p) => p.recommendationScore < 2);
-    return _useHotRanking || weakRecommendation;
-  }
-
-  // 根据是否还有更多，显示“加载中”或“没有更多内容了”
-  Widget _buildLoadMoreIndicator() {
-    if (_isLoading) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(16.0),
-          child: SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-        ),
-      );
-    } else if (!_hasMore) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(16.0),
-          child: Text('没有更多内容了', style: TextStyle(color: Colors.grey)),
-        ),
-      );
-    } else {
-      return const SizedBox();
-    }
-  }
-
-  /// 首屏加载过程中的占位视图
-  Widget _buildInitialLoading() {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 16),
-          Text('加载中...', style: TextStyle(color: Colors.grey)),
         ],
       ),
     );
@@ -1316,9 +892,48 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// 底部加载更多指示器（关注流使用）
+  Widget _buildLoadMoreIndicator() {
+    if (_followingLoading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(16.0),
+          child: SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    } else if (!_followingHasMore) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text('没有更多内容了', style: TextStyle(color: Colors.grey)),
+        ),
+      );
+    } else {
+      return const SizedBox();
+    }
+  }
+
+  /// 首屏加载过程中的占位视图（关注流与分区流共用）
+  Widget _buildInitialLoading() {
+    return const Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(),
+          SizedBox(height: 16),
+          Text('加载中...', style: TextStyle(color: Colors.grey)),
+        ],
+      ),
+    );
+  }
+
   /// 底部自定义导航：
   /// - index=1 -> 打开消息页（返回后重置高亮到首页）。
-  /// - index=2 -> 打开发布弹窗（占位功能）。
+  /// - index=2 -> 打开发布弹窗。
   /// - index=3 -> 打开个人页（返回后重置高亮到首页）。
   Widget _buildBottomNavigationBar() {
     return BottomNavigation(
@@ -1334,8 +949,10 @@ class _HomeScreenState extends State<HomeScreen> {
           Navigator.push(
             context,
             PageRouteBuilder(
-              pageBuilder: (context, animation, secondaryAnimation) => const MessageScreen(),
-              transitionsBuilder: (context, animation, secondaryAnimation, child) => child,
+              pageBuilder: (context, animation, secondaryAnimation) =>
+                  const MessageScreen(),
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) => child,
               transitionDuration: Duration.zero,
             ),
           ).then((_) {
@@ -1348,8 +965,10 @@ class _HomeScreenState extends State<HomeScreen> {
           Navigator.of(context)
               .push(
                 PageRouteBuilder(
-                  pageBuilder: (context, animation, secondaryAnimation) => const NoteEditorPage(),
-                  transitionsBuilder: (context, animation, secondaryAnimation, child) => child,
+                  pageBuilder: (context, animation, secondaryAnimation) =>
+                      const NoteEditorPage(),
+                  transitionsBuilder:
+                      (context, animation, secondaryAnimation, child) => child,
                   transitionDuration: Duration.zero,
                 ),
               )
@@ -1361,26 +980,20 @@ class _HomeScreenState extends State<HomeScreen> {
                   setState(() {
                     _selectedTab = 1;
                     _pinnedSelfPost = result;
-                    _posts.removeWhere((p) => p.id == result.id);
                   });
                   return;
                 }
-                // 发布结果未知/失败时保持原逻辑
-                final firstPagePosts = _posts.take(6).length;
-                if (firstPagePosts < 6 || _posts.isEmpty) {
-                  _posts.clear();
-                  _hasMore = true;
-                  _loadInitialPosts();
-                } else {
-                  _refreshFirstPage();
-                }
+                // 发布结果未知/失败时刷新发现流
+                _feedKey.currentState?.reloadFeed();
               });
         } else if (index == 3) {
           Navigator.push(
             context,
             PageRouteBuilder(
-              pageBuilder: (context, animation, secondaryAnimation) => const ProfilePage(isMainPage: true),
-              transitionsBuilder: (context, animation, secondaryAnimation, child) => child,
+              pageBuilder: (context, animation, secondaryAnimation) =>
+                  const ProfilePage(isMainPage: true),
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) => child,
               transitionDuration: Duration.zero,
             ),
           ).then((_) {
@@ -1398,7 +1011,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     // 释放滚动控制器，避免内存泄漏。
-    _scrollController.dispose();
     _followingScrollController.dispose();
     super.dispose();
   }

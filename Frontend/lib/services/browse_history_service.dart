@@ -1,52 +1,41 @@
-import 'dart:convert';
-
+import '../models/browse_history_item.dart';
 import '../services/api_service.dart';
+import '../utils/local_json_list_store.dart';
+import '../constants/cache_constants.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-/// 单条浏览历史记录
-class BrowseHistoryItem {
-  final String postId;
-  final String title;
-  final int timestamp; // 浏览时间（毫秒）
-
-  BrowseHistoryItem({
-    required this.postId,
-    required this.title,
-    required this.timestamp,
-  });
-
-  Map<String, dynamic> toMap() {
-    return {
-      'postId': postId,
-      'title': title,
-      'timestamp': timestamp,
-    };
-  }
-
-  factory BrowseHistoryItem.fromMap(Map<String, dynamic> map) {
-    return BrowseHistoryItem(
-      postId: map['postId']?.toString() ?? '',
-      title: map['title']?.toString() ?? '',
-      timestamp: (map['timestamp'] as num?)?.toInt() ??
-          DateTime.now().millisecondsSinceEpoch,
-    );
-  }
-}
 
 /// 浏览历史服务：
 /// - 优先调用后端 API，若失败回退到本地 SharedPreferences 缓存。
-/// - 本地缓存按用户划分 key：browse_history_<userId>，只存最近 50 条。
+/// - 本地缓存按用户划分 key：browse_history_<userId>。
+/// - 本地持久化委托给 [LocalJsonListStore]。
 class BrowseHistoryService {
-  static const int _maxHistoryCount = 50;
-
   static String _keyForUser(String userId) => 'browse_history_$userId';
+
+  static SharedPreferences? _cachedPrefs;
+  static Future<SharedPreferences> get _prefs async {
+    _cachedPrefs ??= await SharedPreferences.getInstance();
+    return _cachedPrefs!;
+  }
+
+  static Future<LocalJsonListStore<BrowseHistoryItem>> _store(
+      String userId) async {
+    final prefs = await _prefs;
+    return LocalJsonListStore<BrowseHistoryItem>(
+      prefs: prefs,
+      key: _keyForUser(userId),
+      maxCount: kMaxBrowseHistoryCount,
+      encode: (item) => item.toMap(),
+      decode: (map) => BrowseHistoryItem.fromMap(map),
+      sortBy: (a, b) => b.timestamp.compareTo(a.timestamp),
+    );
+  }
 
   /// 获取指定用户的浏览历史（最新在前）
   static Future<List<BrowseHistoryItem>> getHistory(String userId) async {
     if (userId.isEmpty) return [];
     // 优先从后端获取，失败时回退到本地缓存
     try {
-      final resp = await ApiService.getBrowseHistory(limit: _maxHistoryCount);
+      final resp = await ApiService.getBrowseHistory(limit: kMaxBrowseHistoryCount);
       if (resp['statusCode'] == 200) {
         final body = resp['body'] as Map<String, dynamic>?;
         final items = (body?['items'] as List<dynamic>? ?? [])
@@ -62,13 +51,15 @@ class BrowseHistoryService {
             )
             .toList();
         // 同步一份到本地，作为缓存
-        await _saveToLocal(userId, items);
+        final store = await _store(userId);
+        await store.setAll(items);
         return items;
       }
     } catch (_) {
       // ignore and fallback
     }
-    return _getFromLocal(userId);
+    final store = await _store(userId);
+    return store.getAll();
   }
 
   /// 添加一条浏览历史（若已存在该 postId，则先删除旧记录）
@@ -82,7 +73,15 @@ class BrowseHistoryService {
     try {
       await ApiService.addBrowseHistory(postId: postId, title: title);
     } catch (_) {}
-    await _addToLocal(userId, postId, title);
+    final store = await _store(userId);
+    await store.add(
+      BrowseHistoryItem(
+        postId: postId,
+        title: title,
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+      ),
+      isDuplicate: (existing, incoming) => existing.postId == incoming.postId,
+    );
   }
 
   /// 按 postId 删除浏览记录（用于帖子被删除时清理）
@@ -91,7 +90,8 @@ class BrowseHistoryService {
     try {
       await ApiService.deleteBrowseHistory(postId);
     } catch (_) {}
-    await _removeFromLocal(userId, postId);
+    final store = await _store(userId);
+    await store.removeWhere((item) => item.postId == postId);
   }
 
   /// 清空某个用户的浏览历史
@@ -100,71 +100,7 @@ class BrowseHistoryService {
     try {
       await ApiService.clearBrowseHistory();
     } catch (_) {}
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_keyForUser(userId));
-    } catch (_) {
-      // ignore
-    }
-  }
-
-  /// ================= 本地缓存辅助 =================
-
-  static Future<void> _saveToLocal(String userId, List<BrowseHistoryItem> items) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final encoded = items
-          .map((item) => json.encode(item.toMap()))
-          .toList();
-      await prefs.setStringList(_keyForUser(userId), encoded);
-    } catch (_) {}
-  }
-
-  static Future<List<BrowseHistoryItem>> _getFromLocal(String userId) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final list = prefs.getStringList(_keyForUser(userId)) ?? [];
-      return list
-          .map((s) => BrowseHistoryItem.fromMap(json.decode(s)))
-          .toList()
-        ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    } catch (_) {
-      return [];
-    }
-  }
-
-  static Future<void> _addToLocal(String userId, String postId, String title) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final key = _keyForUser(userId);
-      List<BrowseHistoryItem> history = await _getFromLocal(userId);
-      history.removeWhere((h) => h.postId == postId);
-      history.insert(
-        0,
-        BrowseHistoryItem(
-          postId: postId,
-          title: title,
-          timestamp: DateTime.now().millisecondsSinceEpoch,
-        ),
-      );
-      if (history.length > _maxHistoryCount) {
-        history = history.sublist(0, _maxHistoryCount);
-      }
-      final encoded = history.map((h) => json.encode(h.toMap())).toList();
-      await prefs.setStringList(key, encoded);
-    } catch (_) {}
-  }
-
-  static Future<void> _removeFromLocal(String userId, String postId) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final key = _keyForUser(userId);
-      List<BrowseHistoryItem> history = await _getFromLocal(userId);
-      history.removeWhere((h) => h.postId == postId);
-      final encoded = history.map((h) => json.encode(h.toMap())).toList();
-      await prefs.setStringList(key, encoded);
-    } catch (_) {}
+    final store = await _store(userId);
+    await store.clear();
   }
 }
-
-
