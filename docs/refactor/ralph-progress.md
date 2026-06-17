@@ -61,3 +61,8 @@
 ## Stage2 codex-review P2 — CLEAN
 - codex-review(--base 9446f82, 干净worktree): 零 actionable 功能缺陷, "改动为组件/控制器拆分+测试补充, 测试通过". P2 通过 review.
 - 进入 Stage3 更新 wave2 文档.
+
+## Stage5 (G1 等待期并行) — N1/N2
+- N2: 删 pages/note_editor_page.dart 无用 re-export。
+- N1: auth 5 文件 _page→_screen 后缀, 修 router+profile import。analyze 0, tests 绿。
+- G1 agent(a44727) 后台进行中(post_detail 抽 PostDetailController)。
