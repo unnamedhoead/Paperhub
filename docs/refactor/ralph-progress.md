@@ -14,3 +14,15 @@
 - T4: arxiv_service 测试完成 (16 tests, extractArxivId + ArxivMetadata getters)，非冲突独立文件。
 - 5 个 P2 域 agent 仍在跑 (base 9446f82)，等完成后合并。
 - codex-review P2 的 --base 用 9446f82。
+
+## Iteration 3 — 2026-06-18
+- P2 agents 仍在跑 (admin 已 1 commit, 其余 0)，无可合并项。
+- 完成 G1 规划 (Stage4 预备, 非冲突只读分析): post_detail_screen.dart 现 3680 行。
+- G1 抽取方案: PostDetailController extends ChangeNotifier 持有
+  状态(post/comments/followState/like/save/currentUserId/wsChannel/mentionQuery)
+  + 业务方法(_loadPostDetail/_checkFollowStatus/_toggleFollow/_loadComments/_submitComment/
+  _deleteComment/_handleCommentLikePressed/_handlePostLikePressed/_toggleSave/_onShare/
+  _sharePostToUser/_deletePost + WebSocket _initWebSocket/_handleComment*);
+  screen 保留 build + _build* UI, addListener 刷新, 用户操作调 controller 方法。
+  目标: screen 骨架内无 _load*/_handle*Pressed 业务方法 (grep 核)。
+- 下一步: 等 P2 agents 完成 → 验证合并 → codex-review --base 9446f82 → 文档 → G1。
