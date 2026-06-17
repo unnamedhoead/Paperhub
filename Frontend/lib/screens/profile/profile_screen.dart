@@ -19,7 +19,7 @@ import '../chat_screen.dart';
 import '../follow_list_screen.dart';
 import '../home_screen.dart';
 import '../message_screen.dart';
-import 'note_editor/note_editor_screen.dart';
+import '../note_editor/note_editor_screen.dart';
 import '../post_detail_screen.dart';
 import '../privacy_settings_screen.dart';
 import 'profile_controller.dart';

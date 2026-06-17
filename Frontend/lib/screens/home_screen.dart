@@ -14,6 +14,7 @@
 import 'package:flutter/material.dart';
 import '../models/post_model.dart';
 import '../widgets/post_card.dart';
+import '../widgets/feed_widget.dart';
 import 'search_screen.dart';
 import 'profile_screen.dart';
 import 'message_screen.dart';
