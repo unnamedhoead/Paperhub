@@ -1,36 +1,42 @@
-# Wave2 Token Tracker — P2–P7 Frontend Agents
+# Wave2 Token Tracker — Frontend Agents (含审查修复)
 
-| Agent | Domain | Tokens | Commits | Tests | Key Files |
+| Agent | Domain | Tokens | Commits | Tests | Status |
 |---|---|---|---|---|---|
-| Pre-flight | api_service split | 99,972 | 1 | 5→5 | api_service→9 API files + facade |
-| P2 | auth/user | 164,274 | 3 | +17 (22→22) | profile 2312→5 files, UserRole/Status enum, auth pages cleanup |
-| P3a | note_editor+arxiv | — | 2* | — | note_editor 2284→5 files, arXivApi, arxiv_service fix |
-| P3b | post_detail split | 125,821 | 2 | 84→84 | post_detail 4431→skeleton+3 ext |
-| P4 | interaction | 153,701 | 3 | +20 (25→25) | comment UI widgets, FollowController, notification pages |
-| P5 | chat/websocket | 171,112 | 4 | +8 (13→13) | message_bubble 1257→8, chat_input 790→3, message 1684→3, polling→WS |
-| P6 | admin/report | 154,743 | 3 | +20 (25→25) | admin_mode 3053→8 files, 6 bug fixes |
-| P7 | browse/search | 173,590 | 4 | +14 (19→19) | FeedWidget, LocalJsonListStore, home 1405→1017 |
+| Pre-flight | api_service split | 99,972 | 1 | 5→5 | ✅ merged |
+| P2 | auth/user frontend | 164,274 | 3 | +17 | ✅ merged |
+| P3a | note_editor+arxiv | cherry-pick | 2 | — | ✅ merged |
+| P3b | post_detail split | 125,821 | 2 | 84→84 | ✅ merged |
+| P4 | interaction frontend | 153,701 | 3 | +20 | ✅ merged |
+| P5 | chat/ws frontend | 171,112 | 4 | +8 | ✅ merged |
+| P6 | admin/report frontend | 154,743 | 3 | +20 | ✅ merged |
+| P7 | browse/search frontend | 173,590 | 4 | +14 | ✅ merged |
+
+## 审查修复 Agent
+
+| Agent | Purpose | Tokens | Result |
+|---|---|---|---|
+| Review | Wave2 独立审查 | 71,686 | 4 阻断 + 7 建议 |
+| R1 (lost) | post_detail real split | 182,011 | ❌ 忘 commit, 丢失 |
+| R1 (redo) | post_detail real split | 155,092 | ✅ 3 extensions→独立 Widget |
+| R2 | notification_list split | 72,750 | ✅ 1031→5 files |
+| R3 | state mgmt convention | manual | ✅ doc written |
+| R4 | http_client tests | 98,737 | ✅ 3→20 tests |
 
 ## Token 汇总
 
 | Category | Tokens |
 |---|---|
+| Wave2 Frontend agents (P2–P7) | 943,241 |
 | Pre-flight | 99,972 |
-| P2 | 164,274 |
-| P3 (note_editor + post_detail) | ~125,821** |
-| P4 | 153,701 |
-| P5 | 171,112 |
-| P6 | 154,743 |
-| P7 | 173,590 |
-| **Frontend subtotal** | **~1,043,213** |
+| Review agent | 71,686 |
+| Fix agents (R1+R2+R4) | 326,579 |
+| **Wave2 total** | **~1,441,478** |
 | Wave1 Backend | ~953,604 |
-| **GRAND TOTAL (Wave1+2)** | **~1,996,817** |
-
-* P3 note_editor commit was cherry-picked from failed agent run; tokens not separately tracked (included in 125,821 post_detail agent)
-** P3 first agent stalled; only post_detail split tokens counted
+| **GRAND TOTAL (Wave1+Wave2)** | **~2,395,082** |
 
 ## Final Result
-- **84 tests green, 0 flutter analyze errors**
-- 7 god files split (post_detail, admin_mode, profile, note_editor, message_screen, message_bubble, chat_input)
+- **101 tests green, 0 flutter analyze errors**
+- 8 god files split (all with real independent widgets, not mechanical part/extensions)
 - api_service: 114 static methods → 9 domain API files
 - pages/ → screens/auth/ migrated
+- 4 review blockers: ALL FIXED ✅
