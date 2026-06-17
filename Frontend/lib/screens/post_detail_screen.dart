@@ -26,8 +26,7 @@ import '../utils/dialog_utils.dart';
 import 'post_detail/post_content.dart';
 import 'post_detail/post_actions.dart';
 
-// ===== Part directives for mechanically split files =====
-part 'post_detail/post_media.dart';
+import 'post_detail/post_media.dart';
 
 
 class PostDetailScreen extends StatefulWidget {
@@ -2939,6 +2938,398 @@ class _PostDetailScreenState extends State<PostDetailScreen>
     }
   }
 
+  // ===== 从 post_media 移入的方法 =====
+
+  Future<void> _openExternalLink(String url) async {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('链接为空')));
+      return;
+    }
+
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null || !(uri.isScheme('http') || uri.isScheme('https'))) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('无法识别的链接：$trimmed')));
+      return;
+    }
+
+    if (!await canLaunchUrl(uri)) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('当前环境无法打开链接：$trimmed')));
+      return;
+    }
+
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  List<String> get _imageMedia =>
+      widget.post.media.where((m) => !_isPdf(m)).toList();
+
+  List<String> get _pdfMedia => widget.post.media.where(_isPdf).toList();
+
+  Future<void> _loadImageSize() async {
+    if (_isLoadingImageSize || _imageMedia.isEmpty) return;
+
+    setState(() {
+      _isLoadingImageSize = true;
+    });
+
+    try {
+      final imageUrl = _imageMedia.first;
+      final imageProvider = NetworkImage(imageUrl);
+
+      // 使用 ImageProvider.resolve 获取图片信息
+      final ImageStream stream = imageProvider.resolve(
+        const ImageConfiguration(),
+      );
+      final Completer<void> completer = Completer<void>();
+
+      ImageStreamListener? listener;
+      listener = ImageStreamListener(
+        (ImageInfo info, bool synchronousCall) {
+          if (!mounted) return;
+
+          final image = info.image;
+          setState(() {
+            _actualImageWidth = image.width.toDouble();
+            _actualImageHeight = image.height.toDouble();
+            _isLoadingImageSize = false;
+          });
+
+          stream.removeListener(listener!);
+          if (!completer.isCompleted) {
+            completer.complete();
+          }
+        },
+        onError: (exception, stackTrace) {
+          stream.removeListener(listener!);
+          if (!completer.isCompleted) {
+            completer.complete();
+          }
+          if (mounted) {
+            setState(() {
+              _isLoadingImageSize = false;
+            });
+          }
+        },
+      );
+
+      stream.addListener(listener);
+      await completer.future;
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingImageSize = false;
+        });
+      }
+    }
+  }
+
+  void _toggleImageFullscreen() {
+    setState(() {
+      _isImageFullscreen = !_isImageFullscreen;
+    });
+  }
+
+  void _handleImageHover(bool isHovering) {
+    if (!kIsWeb) return;
+    if (_isHoveringImage != isHovering) {
+      setState(() {
+        _isHoveringImage = isHovering;
+      });
+    }
+  }
+
+  void _goToNextImage() {
+    final images = _imageMedia;
+    if (images.length <= 1) return;
+    final nextIndex = (_currentImageIndex + 1).clamp(0, images.length - 1);
+    _imagePageController.animateToPage(
+      nextIndex,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
+  }
+
+  void _goToPreviousImage() {
+    final images = _imageMedia;
+    if (images.length <= 1) return;
+    final prevIndex = (_currentImageIndex - 1).clamp(0, images.length - 1);
+    _imagePageController.animateToPage(
+      prevIndex,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
+  }
+
+  Widget _buildFullscreenOverlay() {
+    final images = _imageMedia;
+    if (!_isImageFullscreen || images.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Positioned.fill(
+      child: Container(
+        color: Colors.black.withOpacity(0.95),
+        child: SafeArea(
+          child: GestureDetector(
+            onTap: _toggleImageFullscreen,
+            child: Stack(
+              children: [
+                PageView.builder(
+                  controller: _imagePageController,
+                  itemCount: images.length,
+                  onPageChanged: (index) {
+                    if (_currentImageIndex != index) {
+                      setState(() {
+                        _currentImageIndex = index;
+                      });
+                    }
+                  },
+                  itemBuilder: (_, index) {
+                    return Center(
+                      child: InteractiveViewer(
+                        minScale: 0.8,
+                        maxScale: 4.0,
+                        child: _buildImageDisplay(
+                          images[index],
+                          MediaQuery.of(context).size.width,
+                          MediaQuery.of(context).size.height,
+                          BoxFit.contain,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                Positioned(
+                  top: 16,
+                  right: 16,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.5),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '${_currentImageIndex + 1}/${images.length}',
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 16,
+                  left: 16,
+                  child: IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    onPressed: _toggleImageFullscreen,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRemovedWarning() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.red.shade50,
+        border: Border.all(color: Colors.red.shade300),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.warning_amber_rounded,
+            color: Colors.red.shade700,
+            size: 24,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '该笔记已被管理员下架，仅作者可见',
+                  style: TextStyle(
+                    color: Colors.red.shade900,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                if (widget.post.hiddenReason != null &&
+                    widget.post.hiddenReason!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      '原因：${widget.post.hiddenReason}',
+                      style: TextStyle(
+                        color: Colors.red.shade800,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPostUnavailableView() {
+    String message;
+    IconData icon;
+    Color color;
+
+    final status =
+        _currentPostStatus?.toUpperCase() ?? widget.post.status?.toUpperCase();
+    switch (status) {
+      case 'DRAFT':
+        message = '该笔记目前为草稿状态，不可见';
+        icon = Icons.edit_note;
+        color = Colors.orange;
+        break;
+      case 'AUDIT':
+        message = '该笔记正在审核中，暂不可见';
+        icon = Icons.hourglass_empty;
+        color = Colors.blue;
+        break;
+      case 'REMOVED':
+        message = '该笔记已被下架，不可见';
+        icon = Icons.block;
+        color = Colors.red;
+        break;
+      default:
+        message = '该笔记目前不可见';
+        icon = Icons.visibility_off;
+        color = Colors.grey;
+    }
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 64, color: color),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+                color: Colors.grey[700],
+              ),
+              textAlign: TextAlign.center,
+            ),
+            if (widget.post.hiddenReason != null &&
+                widget.post.hiddenReason!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  '原因：${widget.post.hiddenReason}',
+                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAvatarWidget(String avatarPath, double radius) {
+    // 判断是否为网络 URL（以 http:// 或 https:// 开头）
+    if (avatarPath.startsWith('http://') || avatarPath.startsWith('https://')) {
+      return CircleAvatar(
+        radius: radius,
+        backgroundColor: Colors.grey[300],
+        child: ClipOval(
+          child: Image.network(
+            avatarPath,
+            width: radius * 2,
+            height: radius * 2,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return Icon(Icons.person, size: radius, color: Colors.grey);
+            },
+          ),
+        ),
+      );
+    }
+
+    // 处理本地资源路径
+    String assetPath = avatarPath;
+    if (assetPath.startsWith('assets/images/')) {
+      assetPath = assetPath.substring(14);
+    } else if (assetPath.startsWith('assets/')) {
+      assetPath = assetPath.substring(7);
+    }
+
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: Colors.grey[300],
+      child: ClipOval(
+        child: Image.asset(
+          assetPath,
+          width: radius * 2,
+          height: radius * 2,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return Icon(Icons.person, size: radius, color: Colors.grey);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildImageDisplay(
+    String path,
+    double width,
+    double height,
+    BoxFit fit,
+  ) {
+    final placeholder = Container(
+      width: width,
+      height: height,
+      color: Colors.grey[200],
+      child: const Center(
+        child: Icon(Icons.broken_image, size: 48, color: Colors.grey),
+      ),
+    );
+
+    if (path.startsWith('http')) {
+      return Image.network(
+        path,
+        width: width,
+        height: height,
+        fit: fit,
+        errorBuilder: (_, __, ___) => placeholder,
+      );
+    }
+
+    return Image.file(
+      File(path),
+      width: width,
+      height: height,
+      fit: fit,
+      errorBuilder: (_, __, ___) => placeholder,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // 检查帖子状态，如果不是 NORMAL，显示不可见提示页面
@@ -2959,7 +3350,32 @@ class _PostDetailScreenState extends State<PostDetailScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildMediaGallery(),
+                  PostMediaGallery(
+                    imageUrls: _imageMedia,
+                    actualImageWidth: _actualImageWidth,
+                    actualImageHeight: _actualImageHeight,
+                    imageNaturalWidth: widget.post.imageNaturalWidth,
+                    imageNaturalHeight: widget.post.imageNaturalHeight,
+                    imageAspectRatio: widget.post.imageAspectRatio,
+                    imagePageController: _imagePageController,
+                    currentImageIndex: _currentImageIndex,
+                    isHoveringImage: _isHoveringImage,
+                    showBigHeart: _showBigHeart,
+                    heartScale: _heartScale,
+                    onDoubleTap: _toggleLike,
+                    onImageTap: _toggleImageFullscreen,
+                    onNextImage: _goToNextImage,
+                    onPreviousImage: _goToPreviousImage,
+                    onHoverEnter: () => _handleImageHover(true),
+                    onHoverExit: () => _handleImageHover(false),
+                    onPageChanged: (index) {
+                      if (_currentImageIndex != index) {
+                        setState(() {
+                          _currentImageIndex = index;
+                        });
+                      }
+                    },
+                  ),
                   if (widget.post.status == 'REMOVED' &&
                       widget.post.hiddenReason != null)
                     _buildRemovedWarning(),
