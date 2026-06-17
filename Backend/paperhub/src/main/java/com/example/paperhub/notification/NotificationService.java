@@ -6,7 +6,8 @@ import com.example.paperhub.comment.Comment;
 import com.example.paperhub.comment.CommentRepository;
 import com.example.paperhub.post.Post;
 import com.example.paperhub.post.PostRepository;
-import com.example.paperhub.websocket.WebSocketService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -19,35 +20,35 @@ import java.util.Map;
 
 @Service
 public class NotificationService {
+
+    private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
+
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
     private final PostRepository postRepository;
     private final CommentRepository commentRepository;
-    private final WebSocketService webSocketService;
+    private final NotificationPushService notificationPushService;
 
     public NotificationService(
             NotificationRepository notificationRepository,
             UserRepository userRepository,
             PostRepository postRepository,
             CommentRepository commentRepository,
-            WebSocketService webSocketService) {
+            NotificationPushService notificationPushService) {
         this.notificationRepository = notificationRepository;
         this.userRepository = userRepository;
         this.postRepository = postRepository;
         this.commentRepository = commentRepository;
-        this.webSocketService = webSocketService;
+        this.notificationPushService = notificationPushService;
     }
 
     /**
-     * 创建通知
+     * 构建并保存通知实体。actor 与 recipient 为同一人时返回 null。
      */
-    @Transactional
-    public void createNotification(User actor, User recipient, NotificationType type, Post post, Comment comment) {
-        // 不给自己发通知
+    private Notification buildAndSaveNotification(User actor, User recipient, NotificationType type, Post post, Comment comment) {
         if (actor.getId().equals(recipient.getId())) {
-            return;
+            return null;
         }
-
         Notification notification = new Notification();
         notification.setActor(actor);
         notification.setRecipient(recipient);
@@ -55,60 +56,19 @@ public class NotificationService {
         notification.setPost(post);
         notification.setComment(comment);
         notification.setRead(false);
-
         notificationRepository.save(notification);
-
-        // 发送WebSocket推送
-        sendNotificationPush(recipient.getId(), type, notification);
+        return notification;
     }
 
     /**
-     * 发送通知WebSocket推送
+     * 创建通知并推送 WebSocket。
      */
-    private void sendNotificationPush(Long recipientId, NotificationType type, Notification notification) {
-        try {
-            // 准备通知数据
-            Map<String, Object> data = new HashMap<>();
-            data.put("id", notification.getId());
-            data.put("type", type.name());
-            data.put("actorId", notification.getActor().getId());
-            data.put("actorName", notification.getActor().getName());
-            data.put("createdAt", notification.getCreatedAt().toString());
-
-            if (notification.getPost() != null) {
-                data.put("postId", notification.getPost().getId());
-                data.put("postTitle", notification.getPost().getTitle());
-            }
-
-            if (notification.getComment() != null) {
-                data.put("commentId", notification.getComment().getId());
-                data.put("commentContent", notification.getComment().getContent());
-            }
-
-            // 发送新通知推送
-            webSocketService.sendNewNotification(recipientId, type.name(), data);
-
-            // 更新未读数量
-            updateUnreadCounts(recipientId);
-
-        } catch (Exception e) {
-            // WebSocket推送失败不影响主流程
-            e.printStackTrace();
-        }
-    }
-
-    /**
-     * 更新并推送未读数量
-     */
-    private void updateUnreadCounts(Long userId) {
-        try {
-            Map<String, Long> unreadCounts = getUnreadCounts(userId);
-            // 转换为Integer类型
-            Map<String, Integer> counts = new HashMap<>();
-            unreadCounts.forEach((key, value) -> counts.put(key, value.intValue()));
-            webSocketService.sendUnreadCountUpdate(userId, counts);
-        } catch (Exception e) {
-            e.printStackTrace();
+    @Transactional
+    public void createNotification(User actor, User recipient, NotificationType type, Post post, Comment comment) {
+        Notification notification = buildAndSaveNotification(actor, recipient, type, post, comment);
+        if (notification != null) {
+            notificationPushService.pushNotification(recipient.getId(), notification);
+            notificationPushService.pushUnreadCounts(recipient.getId(), getUnreadCountsInternal(recipient));
         }
     }
 
@@ -119,7 +79,7 @@ public class NotificationService {
     public void createPostLikeNotification(User actor, Long postId) {
         Post post = postRepository.findById(postId)
                 .orElseThrow(() -> new IllegalArgumentException("帖子不存在"));
-        
+
         createNotification(actor, post.getAuthor(), NotificationType.POST_LIKE, post, null);
     }
 
@@ -130,7 +90,7 @@ public class NotificationService {
     public void createPostFavoriteNotification(User actor, Long postId) {
         Post post = postRepository.findById(postId)
                 .orElseThrow(() -> new IllegalArgumentException("帖子不存在"));
-        
+
         createNotification(actor, post.getAuthor(), NotificationType.POST_FAVORITE, post, null);
     }
 
@@ -141,7 +101,7 @@ public class NotificationService {
     public void createCommentLikeNotification(User actor, Long commentId) {
         Comment comment = commentRepository.findById(commentId)
                 .orElseThrow(() -> new IllegalArgumentException("评论不存在"));
-        
+
         createNotification(actor, comment.getAuthor(), NotificationType.COMMENT_LIKE, comment.getPost(), comment);
     }
 
@@ -161,7 +121,7 @@ public class NotificationService {
         }
 
         // 如果回复了某个用户，也通知该用户
-        if (replyTo != null && !actor.getId().equals(replyTo.getId()) && 
+        if (replyTo != null && !actor.getId().equals(replyTo.getId()) &&
             !replyTo.getId().equals(post.getAuthor().getId())) {
             createNotification(actor, replyTo, NotificationType.MENTION, post, comment);
         }
@@ -176,17 +136,17 @@ public class NotificationService {
                 .orElseThrow(() -> new IllegalArgumentException("帖子不存在"));
         Comment comment = commentId != null ? commentRepository.findById(commentId)
                 .orElse(null) : null;
-        
+
         // 不给自己发通知
         if (actor.getId().equals(mentionedUser.getId())) {
             return;
         }
-        
+
         // 如果@的是帖子作者，且已经通过createCommentNotification发送了COMMENT通知，则不再发送MENTION通知
         if (mentionedUser.getId().equals(post.getAuthor().getId())) {
             return;
         }
-        
+
         createNotification(actor, mentionedUser, NotificationType.MENTION, post, comment);
     }
 
@@ -209,15 +169,7 @@ public class NotificationService {
         Post post = postRepository.findById(postId)
                 .orElseThrow(() -> new IllegalArgumentException("帖子不存在"));
 
-        Notification notification = new Notification();
-        notification.setActor(admin);
-        notification.setRecipient(post.getAuthor());
-        notification.setType(NotificationType.POST_REMOVED);
-        notification.setPost(post);
-        notification.setComment(null);
-        notification.setRead(false);
-
-        notificationRepository.save(notification);
+        buildAndSaveNotification(admin, post.getAuthor(), NotificationType.POST_REMOVED, post, null);
     }
 
     /**
@@ -228,15 +180,7 @@ public class NotificationService {
         Post post = postRepository.findById(postId)
                 .orElseThrow(() -> new IllegalArgumentException("帖子不存在"));
 
-        Notification notification = new Notification();
-        notification.setActor(admin);
-        notification.setRecipient(post.getAuthor());
-        notification.setType(NotificationType.POST_APPROVED);
-        notification.setPost(post);
-        notification.setComment(null);
-        notification.setRead(false);
-
-        notificationRepository.save(notification);
+        buildAndSaveNotification(admin, post.getAuthor(), NotificationType.POST_APPROVED, post, null);
     }
 
     /**
@@ -247,15 +191,7 @@ public class NotificationService {
         Post post = postRepository.findById(postId)
                 .orElseThrow(() -> new IllegalArgumentException("帖子不存在"));
 
-        Notification notification = new Notification();
-        notification.setActor(admin);
-        notification.setRecipient(post.getAuthor());
-        notification.setType(NotificationType.POST_REJECTED);
-        notification.setPost(post);
-        notification.setComment(null);
-        notification.setRead(false);
-
-        notificationRepository.save(notification);
+        buildAndSaveNotification(admin, post.getAuthor(), NotificationType.POST_REJECTED, post, null);
     }
 
     /**
@@ -303,7 +239,7 @@ public class NotificationService {
      */
     public Page<Notification> getLikesAndFavorites(User recipient, Pageable pageable) {
         return notificationRepository.findByRecipientAndTypeInOrderByCreatedAtDesc(
-                recipient, 
+                recipient,
                 List.of(NotificationType.POST_LIKE, NotificationType.POST_FAVORITE, NotificationType.COMMENT_LIKE),
                 pageable
         );
@@ -343,7 +279,7 @@ public class NotificationService {
         notificationRepository.save(notification);
 
         // 发送未读数量更新
-        updateUnreadCounts(recipient.getId());
+        notificationPushService.pushUnreadCounts(recipient.getId(), getUnreadCountsInternal(recipient));
     }
 
     /**
@@ -363,7 +299,7 @@ public class NotificationService {
         notificationRepository.saveAll(notifications);
 
         // 发送未读数量更新
-        updateUnreadCounts(recipient.getId());
+        notificationPushService.pushUnreadCounts(recipient.getId(), getUnreadCountsInternal(recipient));
     }
 
     /**
@@ -379,7 +315,6 @@ public class NotificationService {
         notificationRepository.saveAll(notifications);
 
         // 发送未读数量更新
-        updateUnreadCounts(recipient.getId());
+        notificationPushService.pushUnreadCounts(recipient.getId(), getUnreadCountsInternal(recipient));
     }
 }
-
