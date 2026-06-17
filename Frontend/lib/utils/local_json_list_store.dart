@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 基于 SharedPreferences StringList 的泛型 JSON 列表存储。
@@ -83,7 +84,9 @@ class LocalJsonListStore<T> {
         items.removeRange(_maxCount, items.length);
       }
       await _save(items);
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('LocalJsonListStore[$_key].add ignored: $e');
+    }
   }
 
   /// 按条件移除条目。
@@ -92,14 +95,18 @@ class LocalJsonListStore<T> {
       final items = await getAll();
       items.removeWhere(test);
       await _save(items);
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('LocalJsonListStore[$_key].removeWhere ignored: $e');
+    }
   }
 
   /// 清空全部条目。
   Future<void> clear() async {
     try {
       await _prefs.remove(_key);
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('LocalJsonListStore[$_key].clear ignored: $e');
+    }
   }
 
   /// 全量替换（用于云端数据同步到本地缓存）。
@@ -107,7 +114,9 @@ class LocalJsonListStore<T> {
     try {
       final capped = items.length > _maxCount ? items.sublist(0, _maxCount) : items;
       await _save(capped);
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('LocalJsonListStore[$_key].setAll ignored: $e');
+    }
   }
 
   /// 删除指定 key 下的所有数据（直接操作 SharedPreferences）。
@@ -115,7 +124,9 @@ class LocalJsonListStore<T> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(key);
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('LocalJsonListStore.removeKey[$key] ignored: $e');
+    }
   }
 
   Future<void> _save(List<T> items) async {

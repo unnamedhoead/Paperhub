@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import '../models/post_model.dart';
@@ -85,7 +86,9 @@ class FeedWidgetState extends State<FeedWidget> {
         }
         _hasMore = _posts.length < total;
       });
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('FeedWidget._loadMorePosts ignored: $e');
+    }
   }
 
   void _scrollListener() {
@@ -211,7 +214,9 @@ class FeedWidgetState extends State<FeedWidget> {
           return;
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('FeedWidget._evaluateUserSignals ignored: $e');
+    }
     _tryLocalUserSignals();
   }
 
@@ -222,7 +227,9 @@ class FeedWidgetState extends State<FeedWidget> {
         final decoded = jsonDecode(cached) as Map<String, dynamic>;
         _applyUserSignals(UserProfile.fromJson(decoded));
       }
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('FeedWidget._tryLocalUserSignals ignored: $e');
+    }
   }
 
   void _applyUserSignals(UserProfile profile) {

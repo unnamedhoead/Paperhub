@@ -8,6 +8,7 @@
 /// [onConfirmDeleteComment] 回调上交给 Screen。行为与原 `_buildCommentsSection` 一致。
 library;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
@@ -356,6 +357,9 @@ class _PostCommentsSectionState extends State<PostCommentsSection> {
         _searchUserByName(userName)
             .then((id) => _mentionUserIdCache[userName] = id)
             .catchError((e) {
+          if (kDebugMode) {
+            debugPrint('PostCommentsSection.searchUserByName ignored: $e');
+          }
           _mentionUserIdCache[userName] = null;
           return null;
         });
