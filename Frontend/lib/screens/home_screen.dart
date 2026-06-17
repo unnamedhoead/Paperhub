@@ -15,11 +15,7 @@ import 'package:flutter/material.dart';
 import '../models/post_model.dart';
 import '../widgets/feed_widget.dart';
 import 'search_screen.dart';
-import 'profile_screen.dart';
-import 'message_screen.dart';
 import 'post_detail_screen.dart';
-import '../widgets/bottom_navigation.dart';
-import 'note_editor/note_editor_screen.dart';
 import '../services/api_service.dart';
 import '../services/chat_service.dart';
 import '../services/unread_service.dart';
@@ -31,6 +27,7 @@ import '../constants/discipline_constants.dart';
 import 'home/home_tab_bar.dart';
 import 'home/following_feed.dart';
 import 'home/zone_tab.dart';
+import 'home/home_bottom_nav.dart';
 
 /// 首页入口组件（Stateful）：承载发现流与分区切换
 class HomeScreen extends StatefulWidget {
@@ -592,7 +589,13 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ),
-      bottomNavigationBar: _buildBottomNavigationBar(),
+      bottomNavigationBar: HomeBottomNav(
+        currentIndex: _currentIndex,
+        onIndexChanged: _onBottomNavTap,
+        onMessageReturn: _restoreHomeHighlight,
+        onPublishReturn: _onPublishReturn,
+        onProfileReturn: _restoreHomeHighlight,
+      ),
     );
   }
 
@@ -646,81 +649,38 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadZonePosts();
   }
 
-  /// 底部自定义导航：
-  /// - index=1 -> 打开消息页（返回后重置高亮到首页）。
-  /// - index=2 -> 打开发布弹窗。
-  /// - index=3 -> 打开个人页（返回后重置高亮到首页）。
-  Widget _buildBottomNavigationBar() {
-    return BottomNavigation(
-      currentIndex: _currentIndex,
-      onTap: (index) {
-        setState(() {
-          _currentIndex = index;
-          if (index != 0) {
-            _pinnedSelfPost = null; // 离开首页清除置顶的自发帖子
-          }
-        });
-        if (index == 1) {
-          Navigator.push(
-            context,
-            PageRouteBuilder(
-              pageBuilder: (context, animation, secondaryAnimation) =>
-                  const MessageScreen(),
-              transitionsBuilder:
-                  (context, animation, secondaryAnimation, child) => child,
-              transitionDuration: Duration.zero,
-            ),
-          ).then((_) {
-            // 当从消息页面返回时，恢复首页高亮
-            setState(() {
-              _currentIndex = 0;
-            });
-          });
-        } else if (index == 2) {
-          Navigator.of(context)
-              .push(
-                PageRouteBuilder(
-                  pageBuilder: (context, animation, secondaryAnimation) =>
-                      const NoteEditorPage(),
-                  transitionsBuilder:
-                      (context, animation, secondaryAnimation, child) => child,
-                  transitionDuration: Duration.zero,
-                ),
-              )
-              .then((result) {
-                setState(() {
-                  _currentIndex = 0;
-                });
-                if (result is Post) {
-                  setState(() {
-                    _selectedTab = 1;
-                    _pinnedSelfPost = result;
-                  });
-                  return;
-                }
-                // 发布结果未知/失败时刷新发现流
-                _feedKey.currentState?.reloadFeed();
-              });
-        } else if (index == 3) {
-          Navigator.push(
-            context,
-            PageRouteBuilder(
-              pageBuilder: (context, animation, secondaryAnimation) =>
-                  const ProfilePage(isMainPage: true),
-              transitionsBuilder:
-                  (context, animation, secondaryAnimation, child) => child,
-              transitionDuration: Duration.zero,
-            ),
-          ).then((_) {
-            // 当从个人页面返回时，恢复首页高亮
-            setState(() {
-              _currentIndex = 0;
-            });
-          });
-        }
-      },
-      context: context,
-    );
+  /// 底部导航点击：切换高亮索引；离开首页时清除置顶的自发帖子。
+  /// 实际页面跳转由 [HomeBottomNav] 负责，跳转后通过回调恢复状态。
+  void _onBottomNavTap(int index) {
+    setState(() {
+      _currentIndex = index;
+      if (index != 0) {
+        _pinnedSelfPost = null; // 离开首页清除置顶的自发帖子
+      }
+    });
+  }
+
+  /// 从消息页 / 个人页返回时恢复首页高亮。
+  void _restoreHomeHighlight() {
+    setState(() {
+      _currentIndex = 0;
+    });
+  }
+
+  /// 从发布页返回时：恢复高亮；发布成功则置顶新帖并切到发现页，否则刷新发现流。
+  void _onPublishReturn(Object? result) {
+    setState(() {
+      _currentIndex = 0;
+    });
+    if (result is Post) {
+      setState(() {
+        _selectedTab = 1;
+        _pinnedSelfPost = result;
+      });
+      return;
+    }
+    // 发布结果未知/失败时刷新发现流
+    _feedKey.currentState?.reloadFeed();
   }
 
   @override
