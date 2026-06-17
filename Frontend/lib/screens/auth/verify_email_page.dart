@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:email_validator/email_validator.dart';
 import '../../constants/app_colors.dart';
 import '../../utils/font_utils.dart';
-import '../../services/api_service.dart';
+import '../../services/api/auth_api.dart';
 import '../../widgets/animated_title_background.dart';
 
 class VerifyEmailPage extends StatefulWidget {
@@ -31,7 +31,7 @@ class _VerifyEmailPageState extends State<VerifyEmailPage> {
       return;
     }
     setState(() => loading = true);
-    final res = await ApiService.sendVerification(email);
+    final res = await AuthApi.sendVerification(email);
     setState(() => loading = false);
     _showSnack(res['body']['message'] ?? '发送完成');
   }
@@ -42,7 +42,7 @@ class _VerifyEmailPageState extends State<VerifyEmailPage> {
       return;
     }
     setState(() => loading = true);
-    final res = await ApiService.verifyCode(email.trim(), code.trim());
+    final res = await AuthApi.verifyCode(email.trim(), code.trim());
     setState(() => loading = false);
     if (res['statusCode'] == 200) {
       _showSnack(res['body']['message'] ?? '验证成功');
