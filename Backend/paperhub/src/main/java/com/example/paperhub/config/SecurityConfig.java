@@ -67,10 +67,26 @@ public class SecurityConfig {
                                 writeError(response, HttpServletResponse.SC_FORBIDDEN, "权限不足"))
                 )
                 .authorizeHttpRequests(reg -> reg
+                        // CORS 预检
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        // 完全公开：认证入口、arXiv 代理、健康检查
                         .requestMatchers("/auth/**", "/arxiv/**", "/posts/health").permitAll()
+                        // 管理后台：角色校验
                         .requestMatchers("/admin/**", "/api/admin/**").hasAnyRole("ADMIN", "SUPER_ADMIN")
-                        .anyRequest().permitAll()
+                        // 私有数据域：任何方法都要登录（个人历史/通知/聊天/上传/举报/我的资料）
+                        .requestMatchers(
+                                "/browse-history/**", "/search-history/**", "/notifications/**",
+                                "/api/conversations/**", "/api/upload/**", "/api/report/**",
+                                "/users/me", "/users/me/**"
+                        ).authenticated()
+                        // 公开内容读取：匿名可浏览帖子/评论/他人资料/热搜（GET）
+                        .requestMatchers(HttpMethod.GET, "/posts/**", "/users/**", "/hot-searches/**").permitAll()
+                        // 其余写操作（点赞/收藏/关注/评论/发帖/编辑/删除…）一律要登录
+                        .requestMatchers(HttpMethod.POST, "/**").authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/**").authenticated()
+                        .requestMatchers(HttpMethod.DELETE, "/**").authenticated()
+                        // 默认拒绝匿名（不再 permitAll 兜底）
+                        .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 

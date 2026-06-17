@@ -14,12 +14,14 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Optional;
 
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -72,6 +74,58 @@ class SecurityConfigTest {
                 .andExpect(jsonPath("$.message").value("admin-ok"));
     }
 
+    // ── 白名单完整性矩阵（FM8 修复：证明收紧未打挂公开浏览、且匿名写被拦） ──
+
+    @Test
+    void publicPostGetIsAnonymous() throws Exception {
+        // 匿名可浏览帖子流（公开内容 GET）
+        mockMvc.perform(get("/posts/feed-ping"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("posts-ok"));
+    }
+
+    @Test
+    void publicHotSearchGetIsAnonymous() throws Exception {
+        mockMvc.perform(get("/hot-searches/ping"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void publicUserProfileGetIsAnonymous() throws Exception {
+        // GET /users/{id} 公开查看他人资料
+        mockMvc.perform(get("/users/42"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void writeWithoutTokenIsUnauthorized() throws Exception {
+        // 匿名写操作（发帖/点赞…）被安全层拦截，不再依赖 controller 自查
+        mockMvc.perform(post("/posts/feed-ping").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(401));
+    }
+
+    @Test
+    void privateHistoryWithoutTokenIsUnauthorized() throws Exception {
+        // 私有数据域（浏览历史）匿名 GET 也被拦截
+        mockMvc.perform(get("/browse-history/ping").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void privateUsersMeWithoutTokenIsUnauthorized() throws Exception {
+        // /users/me 私有，匿名被拦（而 /users/{id} 公开）
+        mockMvc.perform(get("/users/me").accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void writeWithTokenIsAllowed() throws Exception {
+        mockUserToken("user-token", UserRole.USER);
+        mockMvc.perform(post("/posts/feed-ping").header("Authorization", "Bearer user-token"))
+                .andExpect(status().isOk());
+    }
+
     private void mockUserToken(String token, UserRole role) {
         User user = new User();
         user.setEmail(role.name().toLowerCase() + "@example.com");
@@ -94,6 +148,36 @@ class SecurityConfigTest {
         @GetMapping("/admin/ping")
         MessageResponse adminPing() {
             return new MessageResponse("admin-ok");
+        }
+
+        @GetMapping("/posts/feed-ping")
+        MessageResponse postsGet() {
+            return new MessageResponse("posts-ok");
+        }
+
+        @PostMapping("/posts/feed-ping")
+        MessageResponse postsPost() {
+            return new MessageResponse("posts-write-ok");
+        }
+
+        @GetMapping("/hot-searches/ping")
+        MessageResponse hotGet() {
+            return new MessageResponse("hot-ok");
+        }
+
+        @GetMapping("/users/{id}")
+        MessageResponse userPublicGet() {
+            return new MessageResponse("user-public-ok");
+        }
+
+        @GetMapping("/users/me")
+        MessageResponse userMeGet() {
+            return new MessageResponse("user-me-ok");
+        }
+
+        @GetMapping("/browse-history/ping")
+        MessageResponse historyGet() {
+            return new MessageResponse("history-ok");
         }
     }
 
