@@ -164,8 +164,9 @@
 | I4 状态管理 | ✅ | ChangeNotifier 模式已在 home/profile/post_detail/note_editor/admin/follow 6 处落地 + state-management-convention.md 规范 |
 | T4 service 测试 | ✅ | http_client/arxiv/chat/notification_ws 56 例 |
 | T6 测试结果表 | ✅ | refactoring-report §5.4 已填实测(421 tests) |
-| N1/N2/N3/N4 | ✅ | 后缀统一/删空文件/删re-export/移目录 |
-| D8-D10 错误处理 | ✅(进行中→完成) | catch(_){} 16 处补 debug 日志(D8 agent) |
+| N1/N2/N3/N4 | ✅ | 后缀统一(文件+类名 *Screen, `ba04a5c`)/删空文件/删re-export/移目录；import 引用补全 `86dc856` |
+| D8-D10 错误处理 | ✅ | catch(_){} 16 处补 debug 日志，cherry-pick 落 `78d1ba8`，0 残留 |
+| publishNote 测试 | ✅ | DI fake 补 5 例(`efa5b64`)，前端 186→191 |
 | S1/S2 安全 | ✅ | 收紧 authenticated + CORS 机制 |
 | A1 DB最小权限 | 📋 | 运维任务，附最小授权 SQL 见 architecture-decisions.md |
 | A2 Flyway迁移 | 🅓 | 触发: schema 稳定+准生产 |
@@ -179,3 +180,12 @@
 | T5 CI 跑测试 | 📋 | .gitlab-ci.yml 当前 -DskipTests；改为 verify 需 CI 环境备 Redis+H2，交 CI owner(已有 H2 test profile 支撑) |
 
 **结论**：所有 remaining-tasks 项均已 ✅完成 或 明确决议(🅓/🚫/📋)。结构性重构(安全+全部上帝文件+控制器+测试)已实现并验证；剩余为高成本/运维/cosmetic 项，按 ROI 诚实推迟并记录触发条件。
+
+### 收尾共审 (自审 + 独立 reviewer，2026-06-18)
+codex 额度耗尽，改用只读 review agent 替代。独立 reviewer 审 Stage4/5 报 1🔴+2🟡，**全部已核实处置**：
+- 🔴 **N1 import 漏 commit (FM1 复发)**：rename 后的 import 修正只在工作区从未提交→已提交 HEAD 实际 11 个 analyze error、不可编译。已 `86dc856` 提交修复。**教训**：判断分支健康须查 `git show HEAD:` 的 COMMITTED 态，不能只看 working tree（我先前的"clean"自检即被未提交改动蒙蔽）。
+- 🟡 类名/文件名不一致 → `ba04a5c` 类名改 *Screen。
+- 🟡 publishNote 零覆盖 → `efa5b64` 补 5 例 DI 测试。
+- 🟢 WS URL quirk：与 base 逐字一致(非回归)，切 wsBaseUrl 属行为变更，正确推迟 Wave3。
+
+修复后对 4 个收尾 commit 再做一轮独立只读 review 复核。最终：前端 **191 tests + 0 analyze error(COMMITTED 核实)**、后端 235 tests。

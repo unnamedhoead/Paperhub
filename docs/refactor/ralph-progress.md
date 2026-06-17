@@ -75,3 +75,14 @@
 - G1 合并: post_detail_screen 2768→473(≤500), 业务方法全移出(grep空), 12 新文件(PostDetailController+交互/评论子controller+CommentTreeOps纯函数+widgets), 9 增量commit, 21 单测。
 - 合并后全量 186 前端 tests 绿, analyze 0。**所有上帝文件 G1-G10 全部拆完。**
 - 启动最终 codex-review (Stage4/5: G1+G10+N1+N2, --base 2ccd62c)。
+
+## Stage5 收尾 — 独立 review 共审 + 修复 (2026-06-18)
+独立只读 reviewer(codex 额度耗尽→read-only agent 替代, 审 2ccd62c..HEAD)报告 1 个 🔴 + 2 个有效 🟡。逐项核实并修复：
+
+- **🔴 (真实, FM1 复发)**: N1 把 auth/*_page.dart 改名 _screen.dart，但 router.dart + profile/profile_screen.dart 的 6 处 import 修正**只在工作区、从未 commit**——**已提交的 HEAD 实际 11 个 analyze error、无法编译**。我先前"clean"的自检被工作区未提交改动蒙蔽(查的是 working tree 而非 `git show HEAD:`)。教训: 验证"分支是否健康"必须查 COMMITTED 状态，不能只看 working tree。修复 `86dc856`(提交 6 处 import)。修后 `git show HEAD:router.dart` 正确、analyze 0、186 tests 绿。
+- **🟡#1 类名/文件名不一致**: 文件已 _screen.dart 但类仍叫 LoginPage 等。`ba04a5c` 把 5 个公开类+State 类改名 *Screen，更新 router+profile 6 处引用。纯重命名，0 errors/186 tests。
+- **🟡#2 publishNote 零覆盖**: 发布管线(I/O+分支最密)无测试。`efa5b64` 注入捕获式 _FakeNotePublishService 补 5 例(校验短路不触服务/装配+trim/透传 statusOverride/编辑路径)。186→191 tests。
+- **🟢 正确推迟**: WebSocket URL `ws:${apiBaseUrl}` quirk 与 base 逐字一致(非回归)，切 wsBaseUrl 属行为变更，留 Wave3。
+- 另: cherry-pick D8 错误处理日志(`78d1ba8`, c8b1218 旧基→3-way 干净, 未回退 N1)。0 `catch(_){}` 残留。
+
+**最终状态**: refactor/wave1-base HEAD 前端 **191 tests 绿 + 0 analyze error(COMMITTED 已核实)**, 后端 235 tests。启动对 4 个收尾 commit(f3cebd9..HEAD)的最终只读 review 复核。

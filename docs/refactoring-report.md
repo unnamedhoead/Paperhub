@@ -389,10 +389,10 @@ lib/
 | 层 | 用例数 | 通过率 | 说明 |
 |---|---|---|---|
 | 后端 (JUnit + @WebMvcTest + 单元) | **235** | 100% | baseline ~5 → 235；含安全端点矩阵、各域 Controller/Service |
-| 前端 (`flutter test`) | **186** | 100% | baseline 5 → 186；含 service 层(http_client/arxiv/chat/notification_ws 56 例)、各 controller/纯函数/widget |
-| **合计** | **421** | **100%** | analyze 0 error |
+| 前端 (`flutter test`) | **191** | 100% | baseline 5 → 191；含 service 层(http_client/arxiv/chat/notification_ws 56 例)、各 controller/纯函数/widget、publishNote DI 5 例 |
+| **合计** | **426** | **100%** | analyze 0 error（COMMITTED HEAD 核实） |
 
-**回归发现并修复**：审查发现的 4 个 API 契约阻断（follow 路径/丢失端点/SecurityException→500）+ Wave2 审查 4 阻断（post_detail 假拆分/notification_list/状态管理/http_client 覆盖）均已修复。
+**回归发现并修复**：审查发现的 4 个 API 契约阻断（follow 路径/丢失端点/SecurityException→500）+ Wave2 审查 4 阻断（post_detail 假拆分/notification_list/状态管理/http_client 覆盖）+ 收尾共审 1 阻断（N1 import 漏 commit 致 HEAD 不可编译，FM1 复发）均已修复。
 
 > 测试覆盖率（行/分支百分比）未量化统计——属遗留项 T1，建议接入 JaCoCo(后端)/`flutter test --coverage`(前端) 后填充。
 
