@@ -69,7 +69,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _followingScrollListener() {
     if (_followingScrollController.offset >=
         _followingScrollController.position.maxScrollExtent - 200) {
-      _controller.loadMoreFollowingPosts();
+      _controller.following.loadMore();
     }
   }
 
@@ -122,7 +122,7 @@ class _HomeScreenState extends State<HomeScreen> {
             // 顶部导航栏
             HomeTabBar(
               selectedTab: _controller.selectedTab,
-              followingHasNew: _controller.followingHasNew,
+              followingHasNew: _controller.following.hasNew,
               themeModeNotifier: widget.themeModeNotifier,
               onThemeToggle: widget.onThemeToggle,
               onThemeModeChanged: widget.onThemeModeChanged,
@@ -134,9 +134,9 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: _controller.selectedTab == 0
                   ? FollowingFeed(
-                      posts: _controller.followingPosts,
-                      isLoading: _controller.followingLoading,
-                      hasMore: _controller.followingHasMore,
+                      posts: _controller.following.posts,
+                      isLoading: _controller.following.loading,
+                      hasMore: _controller.following.hasMore,
                       scrollController: _followingScrollController,
                       onPostTap: _onPostTap,
                       onAuthorTap: _openUserProfile,
@@ -150,9 +150,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           onAuthorTap: _openUserProfile,
                         )
                       : ZoneTab(
-                          currentDiscipline: _controller.currentZoneDiscipline,
-                          posts: _controller.zonePosts,
-                          isLoading: _controller.zoneLoading,
+                          currentDiscipline: _controller.zone.currentDiscipline,
+                          posts: _controller.zone.posts,
+                          isLoading: _controller.zone.loading,
                           onDisciplineSelected: _controller.selectZoneDiscipline,
                           onPostTap: _onPostTap,
                           onAuthorTap: _openUserProfile,
