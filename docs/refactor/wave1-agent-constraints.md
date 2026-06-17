@@ -53,7 +53,8 @@
 - `git add <具体文件>`，**禁止** `git add -A` / `git add .`
 - 禁止 `--no-verify` / force-push / push（只本地 commit）
 - 每次 commit 结尾加：`Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`
-- 在 worktree 内直接提交到自己的 worktree 分支；不要 merge 到别的分支。
+- 在 worktree 内直接提交到自己的 worktree 分支；不要 merge 到别的分支
+- **G2.6.1 🚨 强制**：报告"完成"前必须 `git commit` 所有变更。验证方式：`git status --porcelain` 必须为空。Wave1 中 P2 和 P6 两个 agent 忘记 commit（工作做完了但留在磁盘上），由 orchestrator 手工补交，浪费了一轮排查时间。后续 agent 违规直接记为失败。。
 
 ---
 
@@ -81,6 +82,25 @@
 | 查 Post 实体 | inject `PostRepository` 只读调用，不改 `Post.java` |
 | 发 WebSocket 推送 | 调 `WebSocketService.pushToUser/pushToPost/pushToAdmins`（P5 暴露的 API），不改 `websocket/` 源文件 |
 | 统一响应/异常 | import `common/dto/ApiResponse` / `common/exception/*`；throw `NotFoundException` 等 |
+
+---
+
+## G6. API 后向兼容（Wave1 审查教训）
+
+> Wave1 审查发现 **3 个真正的 API 回归**，全部是端点路径被意外改变或端点被遗漏。此条列入硬约束。
+
+### G6.1 端点路径必须保持不变
+- Controller 的 `@RequestMapping` base path 和 `@GetMapping/@PostMapping` 子路径**必须与原实现完全相同**。
+- **禁止**自行变更路径前缀（如 `/users/{id}/follow` → `/follows/{id}/follow`）。前端未改动，路径变了就 404。
+- 拆分 Controller 时，若原端点挂在一个上帝 Controller 的 `/users` 下，新 Controller 也必须挂 `/users`，不能自己起 `/follows`。
+
+### G6.2 端点不得遗漏
+- 拆 Controller 前先 `grep` 原 Controller 的所有 `@Mapping` 注解，列成 checklist。
+- 每拆一个端点必须在目标位置有对应实现，拆分完成后逐条核对 checklist。
+- Wave1 中 P4 遗漏了 `GET /users/{userId}/following|followers|mutual` 三个端点，由审查 agent 发现后补回。
+
+### G6.3 响应 JSON 字段名兼容
+已在 G2.2 中覆盖。此处强调：成功响应不套 `ApiResponse<T>` data 层。
 
 ---
 
