@@ -16,8 +16,6 @@ import '../services/local_storage.dart';
 import '../services/browse_history_service.dart';
 import '../config/app_env.dart';
 import 'profile_screen.dart';
-import '../constants/discipline_constants.dart';
-import 'zone_screen.dart';
 import 'search_results_screen.dart';
 import '../services/chat_service.dart';
 import '../widgets/report_post_dialog.dart';
@@ -25,12 +23,11 @@ import '../models/message_model.dart';
 import 'chat_screen.dart';
 import 'note_editor/note_editor_screen.dart';
 import '../utils/dialog_utils.dart';
+import 'post_detail/post_content.dart';
+import 'post_detail/post_actions.dart';
 
 // ===== Part directives for mechanically split files =====
 part 'post_detail/post_media.dart';
-part 'post_detail/post_content.dart';
-// post_actions.dart is now a standalone widget, imported below
-import 'post_detail/post_actions.dart';
 
 
 class PostDetailScreen extends StatefulWidget {
@@ -2834,6 +2831,114 @@ class _PostDetailScreenState extends State<PostDetailScreen>
     }
   }
 
+  // ===== 从 post_content 移入的方法 =====
+
+  String _formatRelative(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 4) return '刚刚';
+    if (diff.inMinutes >= 4 && diff.inMinutes < 60)
+      return '${diff.inMinutes} 分钟前';
+    if (diff.inHours < 24) return '${diff.inHours} 小时前';
+    return '${diff.inDays} 天前';
+  }
+
+  bool _isPdf(String url) {
+    if (url.isEmpty) return false;
+    try {
+      final uri = Uri.tryParse(url);
+      final path = uri?.path.toLowerCase() ?? url.toLowerCase();
+      if (path.endsWith('.pdf')) return true;
+      if (path.contains('/pdf/') || path.contains('/pdfs/')) return true;
+      final query = uri?.queryParameters;
+      if (query != null) {
+        final type =
+            query['type']?.toLowerCase() ?? query['format']?.toLowerCase();
+        if (type == 'pdf' || type == 'application/pdf') return true;
+      }
+      return false;
+    } catch (_) {
+      return url.toLowerCase().endsWith('.pdf');
+    }
+  }
+
+  void _onTagTap(String tag) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => SearchResultsScreen(query: '#$tag')),
+    );
+  }
+
+  void _openPdfPreview(String url, String title) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) {
+      _showSnack('PDF 链接无效');
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PdfPreviewScreen(url: uri.toString(), title: title),
+        fullscreenDialog: true,
+      ),
+    );
+  }
+
+  Future<void> _downloadPdf(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) {
+      _showSnack('PDF 链接无效');
+      return;
+    }
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok) {
+        _showSnack('无法打开下载链接');
+      }
+    } catch (_) {
+      _showSnack('无法打开下载链接');
+    }
+  }
+
+  Future<Map<String, dynamic>> _fetchReferencePost(int postId) async {
+    if (_referencePostCache.containsKey(postId)) {
+      return _referencePostCache[postId]!;
+    }
+    try {
+      final resp = await ApiService.getPost(postId.toString());
+      if (resp['statusCode'] == 200) {
+        final postData = resp['body'];
+        _referencePostCache[postId] = postData;
+        return postData;
+      } else {
+        throw Exception('无法获取引用帖子');
+      }
+    } catch (e) {
+      throw e;
+    }
+  }
+
+  void _navigateToReferencePost(int postId) async {
+    try {
+      final resp = await ApiService.getPost(postId.toString());
+      if (resp['statusCode'] == 200) {
+        final refPostData = resp['body'];
+        final refPost = Post.fromJson(refPostData);
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => PostDetailScreen(post: refPost),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('引用内容已不可见')));
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('无法访问引用内容')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // 检查帖子状态，如果不是 NORMAL，显示不可见提示页面
@@ -2859,8 +2964,21 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                       widget.post.hiddenReason != null)
                     _buildRemovedWarning(),
                   const SizedBox(height: 8),
-                  _buildAuthorRow(),
-                  _buildContent(),
+                  PostContentView(
+                    post: widget.post,
+                    isFollowingAuthor: _isFollowingAuthor,
+                    followInFlight: _followInFlight,
+                    pdfMedia: _pdfMedia,
+                    onAuthorTap: () =>
+                        _openUserProfile(widget.post.author.id),
+                    onToggleFollow: _toggleFollow,
+                    onTagTap: _onTagTap,
+                    onOpenPdfPreview: _openPdfPreview,
+                    onDownloadPdf: _downloadPdf,
+                    onOpenExternalLink: _openExternalLink,
+                    onFetchReferencePost: _fetchReferencePost,
+                    onNavigateToReferencePost: _navigateToReferencePost,
+                  ),
                   PostActionsBar(
                     post: widget.post,
                     isLiked: isLiked,
@@ -3165,89 +3283,7 @@ class ClickableTagWidget extends StatelessWidget {
   }
 }
 
-/// 渲染带可点击标签的正文
-class ContentWithClickableTags extends StatelessWidget {
-  final String content;
-  final List<String> subTags;
-  final Function(String) onTagTap;
-
-  const ContentWithClickableTags({
-    super.key,
-    required this.content,
-    required this.subTags,
-    required this.onTagTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    // 如果内容为空，返回空容器
-    if (content.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    // 使用正则表达式分割文本和标签
-    final regex = RegExp(r'(#([^\s#]+))');
-    final matches = regex.allMatches(content);
-
-    if (matches.isEmpty) {
-      // 没有标签，直接返回文本
-      return Text(content, style: const TextStyle(fontSize: 14, height: 1.6));
-    }
-
-    // 构建富文本
-    final textSpans = <TextSpan>[];
-    int lastEnd = 0;
-
-    for (final match in matches) {
-      // 添加匹配前的普通文本
-      if (match.start > lastEnd) {
-        textSpans.add(
-          TextSpan(
-            text: content.substring(lastEnd, match.start),
-            style: const TextStyle(fontSize: 14, height: 1.6),
-          ),
-        );
-      }
-
-      // 添加可点击的标签
-      final tag = match.group(2)!; // 获取#后面的标签内容
-      textSpans.add(
-        TextSpan(
-          text: match.group(1), // 完整的#标签文本
-          style: const TextStyle(
-            fontSize: 14,
-            height: 1.6,
-            color: Colors.blue,
-            fontWeight: FontWeight.w500,
-          ),
-          recognizer: TapGestureRecognizer()
-            ..onTap = () {
-              onTagTap(tag);
-            },
-        ),
-      );
-
-      lastEnd = match.end;
-    }
-
-    // 添加剩余的文本
-    if (lastEnd < content.length) {
-      textSpans.add(
-        TextSpan(
-          text: content.substring(lastEnd),
-          style: const TextStyle(fontSize: 14, height: 1.6),
-        ),
-      );
-    }
-
-    return RichText(
-      text: TextSpan(
-        children: textSpans,
-        style: const TextStyle(fontSize: 14, height: 1.6, color: Colors.black),
-      ),
-    );
-  }
-}
+// ContentWithClickableTags moved to widgets/content_with_clickable_tags.dart
 
 
 
