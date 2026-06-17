@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/post_model.dart';
 import '../services/api_service.dart';
-import 'dart:io';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import '../services/local_storage.dart';
@@ -25,6 +24,8 @@ import 'post_detail/post_comment_input_bar.dart';
 import 'post_detail/post_comments_section.dart';
 import 'post_detail/pdf_preview_screen.dart';
 import 'post_detail/share_user_selection_sheet.dart';
+import 'post_detail/post_status_views.dart';
+import 'post_detail/post_fullscreen_image_overlay.dart';
 
 import 'post_detail/post_media.dart';
 
@@ -499,224 +500,6 @@ class _PostDetailScreenState extends State<PostDetailScreen>
     );
   }
 
-  Widget _buildFullscreenOverlay() {
-    final images = _imageMedia;
-    if (!_isImageFullscreen || images.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return Positioned.fill(
-      child: Container(
-        color: Colors.black.withOpacity(0.95),
-        child: SafeArea(
-          child: GestureDetector(
-            onTap: _toggleImageFullscreen,
-            child: Stack(
-              children: [
-                PageView.builder(
-                  controller: _imagePageController,
-                  itemCount: images.length,
-                  onPageChanged: (index) {
-                    if (_currentImageIndex != index) {
-                      setState(() {
-                        _currentImageIndex = index;
-                      });
-                    }
-                  },
-                  itemBuilder: (_, index) {
-                    return Center(
-                      child: InteractiveViewer(
-                        minScale: 0.8,
-                        maxScale: 4.0,
-                        child: _buildImageDisplay(
-                          images[index],
-                          MediaQuery.of(context).size.width,
-                          MediaQuery.of(context).size.height,
-                          BoxFit.contain,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                Positioned(
-                  top: 16,
-                  right: 16,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.5),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '${_currentImageIndex + 1}/${images.length}',
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  top: 16,
-                  left: 16,
-                  child: IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white),
-                    onPressed: _toggleImageFullscreen,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRemovedWarning() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.red.shade50,
-        border: Border.all(color: Colors.red.shade300),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.warning_amber_rounded,
-            color: Colors.red.shade700,
-            size: 24,
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '该笔记已被管理员下架，仅作者可见',
-                  style: TextStyle(
-                    color: Colors.red.shade900,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                  ),
-                ),
-                if (widget.post.hiddenReason != null &&
-                    widget.post.hiddenReason!.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(
-                      '原因：${widget.post.hiddenReason}',
-                      style: TextStyle(
-                        color: Colors.red.shade800,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPostUnavailableView() {
-    String message;
-    IconData icon;
-    Color color;
-
-    final status =
-        _currentPostStatus?.toUpperCase() ?? widget.post.status?.toUpperCase();
-    switch (status) {
-      case 'DRAFT':
-        message = '该笔记目前为草稿状态，不可见';
-        icon = Icons.edit_note;
-        color = Colors.orange;
-        break;
-      case 'AUDIT':
-        message = '该笔记正在审核中，暂不可见';
-        icon = Icons.hourglass_empty;
-        color = Colors.blue;
-        break;
-      case 'REMOVED':
-        message = '该笔记已被下架，不可见';
-        icon = Icons.block;
-        color = Colors.red;
-        break;
-      default:
-        message = '该笔记目前不可见';
-        icon = Icons.visibility_off;
-        color = Colors.grey;
-    }
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 64, color: color),
-            const SizedBox(height: 16),
-            Text(
-              message,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-                color: Colors.grey[700],
-              ),
-              textAlign: TextAlign.center,
-            ),
-            if (widget.post.hiddenReason != null &&
-                widget.post.hiddenReason!.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  '原因：${widget.post.hiddenReason}',
-                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildImageDisplay(
-    String path,
-    double width,
-    double height,
-    BoxFit fit,
-  ) {
-    final placeholder = Container(
-      width: width,
-      height: height,
-      color: Colors.grey[200],
-      child: const Center(
-        child: Icon(Icons.broken_image, size: 48, color: Colors.grey),
-      ),
-    );
-
-    if (path.startsWith('http')) {
-      return Image.network(
-        path,
-        width: width,
-        height: height,
-        fit: fit,
-        errorBuilder: (_, __, ___) => placeholder,
-      );
-    }
-
-    return Image.file(
-      File(path),
-      width: width,
-      height: height,
-      fit: fit,
-      errorBuilder: (_, __, ___) => placeholder,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     // 检查帖子状态，如果不是 NORMAL，显示不可见提示页面
@@ -730,7 +513,10 @@ class _PostDetailScreenState extends State<PostDetailScreen>
         children: [
           if (isPostUnavailable)
             // 帖子不可见，显示提示页面
-            _buildPostUnavailableView()
+            PostUnavailableView(
+              status: _currentPostStatus ?? widget.post.status,
+              hiddenReason: widget.post.hiddenReason,
+            )
           else
             // 帖子可见，显示正常内容
             SingleChildScrollView(
@@ -765,7 +551,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                   ),
                   if (widget.post.status == 'REMOVED' &&
                       widget.post.hiddenReason != null)
-                    _buildRemovedWarning(),
+                    PostRemovedWarning(hiddenReason: widget.post.hiddenReason),
                   const SizedBox(height: 8),
                   PostContentView(
                     post: widget.post,
@@ -804,7 +590,18 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                 ],
               ),
             ),
-          if (_isImageFullscreen) _buildFullscreenOverlay(),
+          if (_isImageFullscreen && _imageMedia.isNotEmpty)
+            PostFullscreenImageOverlay(
+              images: _imageMedia,
+              pageController: _imagePageController,
+              currentIndex: _currentImageIndex,
+              onIndexChanged: (index) {
+                if (_currentImageIndex != index) {
+                  setState(() => _currentImageIndex = index);
+                }
+              },
+              onClose: _toggleImageFullscreen,
+            ),
           if (!isPostUnavailable)
             PostCommentInputBar(commentController: _comm),
           if (_isDeleting)
