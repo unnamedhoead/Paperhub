@@ -1,5 +1,6 @@
 package com.example.paperhub.post.service;
 
+import com.example.paperhub.common.exception.ForbiddenException;
 import com.example.paperhub.post.Post;
 import com.example.paperhub.post.PostRepository;
 import com.example.paperhub.post.PostStatus;
@@ -37,7 +38,7 @@ public class PostDraftService {
                 .orElseThrow(() -> new IllegalArgumentException("帖子不存在"));
 
         if (!post.getAuthor().getId().equals(userId)) {
-            throw new SecurityException("只能保存自己的帖子为草稿");
+            throw new ForbiddenException("只能保存自己的帖子为草稿");
         }
 
         post.setStatus(PostStatus.DRAFT);

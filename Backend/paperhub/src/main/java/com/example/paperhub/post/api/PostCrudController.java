@@ -154,8 +154,6 @@ public class PostCrudController {
             return ResponseEntity.ok(resp);
         } catch (IllegalArgumentException ex) {
             throw new NotFoundException(ex.getMessage());
-        } catch (SecurityException ex) {
-            throw new ForbiddenException(ex.getMessage());
         }
     }
 
@@ -177,8 +175,6 @@ public class PostCrudController {
             return ResponseEntity.noContent().build();
         } catch (IllegalArgumentException ex) {
             throw new NotFoundException(ex.getMessage());
-        } catch (SecurityException ex) {
-            throw new ForbiddenException(ex.getMessage());
         }
     }
 
@@ -320,8 +316,6 @@ public class PostCrudController {
             ));
         } catch (IllegalArgumentException ex) {
             throw new NotFoundException(ex.getMessage());
-        } catch (SecurityException ex) {
-            throw new ForbiddenException(ex.getMessage());
         }
     }
 

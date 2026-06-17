@@ -3,6 +3,7 @@ package com.example.paperhub.post.service;
 import com.example.paperhub.auth.User;
 import com.example.paperhub.auth.UserStatus;
 import com.example.paperhub.comment.CommentRepository;
+import com.example.paperhub.common.exception.ForbiddenException;
 import com.example.paperhub.favorite.FavoritePostRepository;
 import com.example.paperhub.history.BrowseHistoryRepository;
 import com.example.paperhub.like.CommentLikeRepository;
@@ -144,7 +145,7 @@ public class PostCrudService {
                 .orElseThrow(() -> new IllegalArgumentException("帖子不存在"));
 
         if (operator == null || !post.getAuthor().getId().equals(operator.getId())) {
-            throw new SecurityException("无权编辑他人的笔记");
+            throw new ForbiddenException("无权编辑他人的笔记");
         }
 
         post.setTitle(title);
@@ -255,7 +256,7 @@ public class PostCrudService {
                 .orElseThrow(() -> new IllegalArgumentException("帖子不存在"));
 
         if (!post.getAuthor().getId().equals(operatorId)) {
-            throw new SecurityException("无权删除他人的笔记");
+            throw new ForbiddenException("无权删除他人的笔记");
         }
 
         var commentIds = commentRepository.findIdsByPostId(postId);
