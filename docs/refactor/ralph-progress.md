@@ -33,3 +33,7 @@
 - 合并 P2-interaction: follow_list 851→178 + screens/follow/ + N4(follow_controller 移入) + notification_ws 测试10例。
 - 全量 flutter test 127 绿, analyze 0 error。
 - 剩 3 agent 跑: discovery(home/search 最慢)/chat/profile。等完成合并 → codex-review → 文档 → G1。
+
+## Iteration ~14 — 2026-06-18
+- 合并 P2-chat: chat_screen 610→287 + screens/chat/(4) + share_bubble 483→186 + chat_service test(10). analyze 0.
+- P2 已合 3/5 (admin/interaction/chat)。剩 profile/discovery。
