@@ -2,10 +2,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
-import 'dart:convert';
-import 'package:web_socket_channel/web_socket_channel.dart';
 import '../models/post_model.dart';
-import '../models/user_profile.dart';
 import '../services/api_service.dart';
 import 'dart:io';
 import 'package:url_launcher/url_launcher.dart';
@@ -14,7 +11,6 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import '../widgets/pdf_iframe_view.dart';
 import '../services/local_storage.dart';
 import '../services/browse_history_service.dart';
-import '../config/app_env.dart';
 import 'profile_screen.dart';
 import 'search_results_screen.dart';
 import '../services/chat_service.dart';
@@ -25,6 +21,7 @@ import 'note_editor/note_editor_screen.dart';
 import '../utils/dialog_utils.dart';
 import 'post_detail/post_content.dart';
 import 'post_detail/post_actions.dart';
+import 'post_detail/post_detail_controller.dart';
 
 import 'post_detail/post_media.dart';
 
@@ -144,45 +141,37 @@ class _PdfPreviewScreenState extends State<PdfPreviewScreen> {
 
 class _PostDetailScreenState extends State<PostDetailScreen>
     with SingleTickerProviderStateMixin {
-  WebSocketChannel? _wsChannel;
-  late bool isLiked;
-  late bool isSaved;
-  late int likeCount;
-  //late Post _post;
-  Comment? _currentReplyTo; // 当前正在回复的评论
-  String? _currentReplyParentId; // 当前回复的父评论 ID
-  final FocusNode _commentFocusNode = FocusNode();
-  // 评论列表
-  late List<Comment> _comments = [];
-  // 评论加载状态
-  bool _isLoadingComments = false;
-  bool _hasMoreComments = true;
-  int _currentPage = 1;
-  static const int _pageSize = 20;
-  // 防止重复请求
-  bool _postLikeInFlight = false;
+  // 数据状态 + 业务逻辑都在 controller 里（详见 post_detail_controller.dart）。
+  // 本 State 只保留 UI 资源（输入框 / 焦点 / 动画 / 翻页）、@提及输入状态与图片全屏 UI 状态。
+  late final PostDetailController _controller;
 
-  // 引用文献缓存，避免重复加载
-  final Map<int, Map<String, dynamic>> _referencePostCache = {};
-  final Set<String> _commentLikeInFlight = {}; // commentId 集合
-  bool _isSubmittingComment = false;
+  // 下列 getter 桥接到 controller，避免改动大量 _build* 引用点。
+  bool get isLiked => _controller.isLiked;
+  bool get isSaved => _controller.isSaved;
+  int get likeCount => _controller.likeCount;
+  Comment? get _currentReplyTo => _controller.currentReplyTo;
+  String? get _currentReplyParentId => _controller.currentReplyParentId;
+  List<Comment> get _comments => _controller.comments;
+  bool get _isLoadingComments => _controller.isLoadingComments;
+  bool get _hasMoreComments => _controller.hasMoreComments;
+  bool get _isDeleting => _controller.isDeleting;
+  String? get _currentUserId => _controller.currentUserId;
+  bool? get _isFollowingAuthor => _controller.isFollowingAuthor;
+  bool get _followInFlight => _controller.followInFlight;
+  String? get _currentPostStatus => _controller.currentPostStatus;
+  double? get _actualImageWidth => _controller.actualImageWidth;
+  double? get _actualImageHeight => _controller.actualImageHeight;
+  bool get _isOwner => _controller.isOwner;
+  List<String> get _imageMedia => _controller.imageMedia;
+  List<String> get _pdfMedia => _controller.pdfMedia;
+
+  final FocusNode _commentFocusNode = FocusNode();
   final TextEditingController _commentController = TextEditingController();
   late AnimationController _heartCtrl;
   late Animation<double> _heartScale;
   bool _showBigHeart = false;
-  bool _saveInFlight = false;
-  bool _isDeleting = false;
-  String? _currentUserId;
-  bool? _isFollowingAuthor; // 是否关注了作者
-  bool _followInFlight = false; // 关注操作进行中
-  String? _currentPostStatus; // 当前帖子状态（从后端获取的最新状态）
 
-  // 图片实际尺寸（用于动态计算宽高比）
-  double? _actualImageWidth;
-  double? _actualImageHeight;
-  bool _isLoadingImageSize = false;
-
-  // @功能相关状态
+  // @功能相关状态（与 _commentController 强耦合，留在 State）
   bool _showMentionList = false;
   List<Author> _mentionCandidates = [];
   String _mentionQuery = '';
@@ -199,10 +188,19 @@ class _PostDetailScreenState extends State<PostDetailScreen>
   void initState() {
     super.initState();
     _imagePageController = PageController();
-    isLiked = widget.post.isLiked;
-    isSaved = widget.post.isSaved;
-    likeCount = widget.post.likesCount;
-    _currentPostStatus = widget.post.status; // 初始化状态
+
+    // 创建数据/业务 controller，注入需要 BuildContext 的 UI 副作用回调。
+    _controller = PostDetailController(post: widget.post);
+    _controller.onMessage = _showSnack;
+    _controller.onPostDeleted = () {
+      if (mounted) Navigator.of(context).pop(true);
+    };
+    _controller.onLikeAnimation = () {
+      if (!mounted) return;
+      setState(() => _showBigHeart = true);
+      _heartCtrl.forward(from: 0.0);
+    };
+    _controller.addListener(_onControllerChanged);
 
     _heartCtrl = AnimationController(
       vsync: this,
@@ -229,15 +227,6 @@ class _PostDetailScreenState extends State<PostDetailScreen>
     // 监听评论输入框的文本变化，检测@输入
     _commentController.addListener(_onCommentTextChanged);
 
-    // 从后端获取最新的帖子信息
-    _loadPostDetail();
-
-    // 加载评论
-    _loadComments();
-
-    // 获取当前用户ID
-    _loadCurrentUserId();
-
     // 记录浏览历史（最多 50 条由 BrowseHistoryService 自己控制）
     final userId = LocalStorage.instance.read('userId')?.toString();
     if (userId != null && userId.isNotEmpty) {
@@ -250,223 +239,26 @@ class _PostDetailScreenState extends State<PostDetailScreen>
       );
     }
 
-    // WebSocket 实时点赞监听
-    _initWebSocket();
+    // 启动 controller：拉取详情/评论/当前用户、连接 WebSocket、检查关注、按需加载图片尺寸。
+    _controller.init(LocalStorage.instance.read('userId'));
+  }
 
-    _currentUserId = LocalStorage.instance.read('userId');
-
-    // 检查是否已关注作者
-    _checkFollowStatus();
-
-    // 如果后端返回的尺寸看起来是默认值（800x600），尝试加载图片获取真实尺寸
-    if (_imageMedia.isNotEmpty &&
-        widget.post.imageNaturalWidth == 800.0 &&
-        widget.post.imageNaturalHeight == 600.0) {
-      _loadImageSize();
-    }
+  void _onControllerChanged() {
+    if (mounted) setState(() {});
   }
 
   /// 加载图片获取真实尺寸
 
-  Future<void> _loadPostDetail() async {
-    try {
-      final resp = await ApiService.getPost(widget.post.id);
-      final status = resp['statusCode'] as int? ?? 500;
-      final body = resp['body'] as Map<String, dynamic>?;
-
-      if (status >= 200 && status < 300 && body != null) {
-        final updatedPost = Post.fromJson(body);
-        if (mounted) {
-          setState(() {
-            isLiked = updatedPost.isLiked;
-            likeCount = updatedPost.likesCount;
-            widget.post.likesCount = updatedPost.likesCount;
-            widget.post.isLiked = updatedPost.isLiked;
-            widget.post.commentsCount = updatedPost.commentsCount;
-            _currentPostStatus = updatedPost.status; // 更新帖子状态
-          });
-        }
-      }
-    } catch (e) {
-      // 如果加载失败，使用传入的post对象
-      // 不显示错误，因为已经有初始数据
-    }
-  }
-
-  /// 检查是否已关注作者
-  Future<void> _checkFollowStatus() async {
-    if (_currentUserId == null || widget.post.author.id.isEmpty) {
-      return;
-    }
-
-    // 如果是查看自己的帖子，不需要显示关注按钮
-    if (_currentUserId == widget.post.author.id) {
-      setState(() {
-        _isFollowingAuthor = null; // null表示不显示关注按钮
-      });
-      return;
-    }
-
-    try {
-      final resp = await ApiService.getUserProfile(widget.post.author.id);
-      if (resp['statusCode'] == 200) {
-        final body = resp['body'] as Map<String, dynamic>;
-        final profile = UserProfile.fromJson(body);
-        if (mounted) {
-          setState(() {
-            _isFollowingAuthor = profile.isFollowing ?? false;
-          });
-        }
-      }
-    } catch (e) {
-      // 如果获取失败，默认显示未关注
-      if (mounted) {
-        setState(() {
-          _isFollowingAuthor = false;
-        });
-      }
-    }
-  }
-
-  /// 切换关注状态
-  Future<void> _toggleFollow() async {
-    if (_followInFlight || _isFollowingAuthor == null) return;
-
-    final authorId = widget.post.author.id;
-    if (authorId.isEmpty || _currentUserId == authorId) return;
-
-    final prev = _isFollowingAuthor!;
-    final next = !prev;
-
-    setState(() {
-      _followInFlight = true;
-      _isFollowingAuthor = next;
-    });
-
-    try {
-      final resp = next
-          ? await ApiService.followUser(authorId)
-          : await ApiService.unfollowUser(authorId);
-
-      if (resp['statusCode'] != 200) {
-        throw Exception(
-          (resp['body'] as Map<String, dynamic>?)?['message'] ?? '操作失败',
-        );
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(next ? '已关注 ${widget.post.author.name}' : '已取消关注'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    } catch (e) {
-      // 回滚状态
-      if (mounted) {
-        setState(() {
-          _isFollowingAuthor = prev;
-        });
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('操作失败：$e')));
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _followInFlight = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _loadComments({bool refresh = false}) async {
-    if (_isLoadingComments) return;
-
-    setState(() {
-      _isLoadingComments = true;
-      if (refresh) {
-        _comments = [];
-        _currentPage = 1;
-        _hasMoreComments = true;
-      }
-    });
-
-    try {
-      // 使用后端 API 加载评论（分页）
-      // ApiService.getComments 返回 {'statusCode': int, 'body': Map}
-      final resp = await ApiService.getComments(
-        widget.post.id,
-        page: _currentPage,
-        pageSize: _pageSize,
-      );
-
-      final status = resp['statusCode'] as int? ?? 500;
-      final body = resp['body'] as Map<String, dynamic>?;
-      if (status >= 200 && status < 300 && body != null) {
-        final commentsData =
-            (body['comments'] as List<dynamic>?) ?? <dynamic>[];
-        final total = body['total'] as int? ?? commentsData.length;
-
-        final newComments = commentsData
-            .map((c) => Comment.fromJson(c as Map<String, dynamic>))
-            .toList();
-
-        setState(() {
-          if (refresh) {
-            _comments = newComments;
-          } else {
-            _comments.addAll(newComments);
-          }
-
-          _hasMoreComments = _comments.length < total;
-          _currentPage++;
-          // 因为total只包含顶层评论，而post.commentsCount包含所有评论（包括楼中楼）
-          // commentCount = total;
-          // widget.post.commentsCount = total;
-        });
-      } else {
-        // 可选：显示错误信息，body 可能包含 message 字段
-        final msg = body != null && body['message'] != null
-            ? body['message'].toString()
-            : '加载评论失败';
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(msg)));
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('加载评论失败')));
-    } finally {
-      setState(() {
-        _isLoadingComments = false;
-      });
-    }
-  }
-
   @override
   void dispose() {
+    _controller.removeListener(_onControllerChanged);
+    _controller.dispose();
     _heartCtrl.dispose();
     _commentController.removeListener(_onCommentTextChanged);
     _commentController.dispose();
     _commentFocusNode.dispose();
     _imagePageController.dispose();
-    _wsChannel?.sink.close();
     super.dispose();
-  }
-
-  Future<void> _loadCurrentUserId() async {
-    try {
-      final resp = await ApiService.getCurrentUserProfile();
-      if (resp['statusCode'] == 200) {
-        final body = resp['body'] as Map<String, dynamic>;
-        setState(() {
-          _currentUserId = body['id']?.toString();
-        });
-      }
-    } catch (e) {
-      // 忽略错误
-    }
   }
 
   void _onCommentTextChanged() {
@@ -1240,9 +1032,9 @@ class _PostDetailScreenState extends State<PostDetailScreen>
   }
 
   void _startReply(Comment comment, {String? parentId}) {
+    // 回复目标（数据）交给 controller；输入框文本与 @提及状态留在 State。
+    _controller.startReply(comment, parentId: parentId);
     setState(() {
-      _currentReplyTo = comment;
-      _currentReplyParentId = parentId ?? comment.id;
       _commentController.text = '';
       // 重置@功能状态
       _showMentionList = false;
@@ -1251,15 +1043,13 @@ class _PostDetailScreenState extends State<PostDetailScreen>
       _mentionStartIndex = -1;
       _selectedMentions.clear();
       _isAutoAddingMention = false;
-      //_commentController.text = '@${comment.author.name} ';
     });
     _commentFocusNode.requestFocus();
   }
 
   void _cancelReply() {
+    _controller.cancelReply();
     setState(() {
-      _currentReplyTo = null;
-      _currentReplyParentId = null;
       _commentController.text = '';
       // 重置@功能状态
       _showMentionList = false;
@@ -1271,384 +1061,57 @@ class _PostDetailScreenState extends State<PostDetailScreen>
     });
   }
 
-  /// 初始化 WebSocket 连接，监听后端推送的点赞/评论点赞变更
-  void _initWebSocket() {
-    // TODO: 替换为你后端实际 ws 地址
-    final wsUrl = 'ws:${AppEnv.apiBaseUrl}/ws/posts/${widget.post.id}';
-    _wsChannel = WebSocketChannel.connect(Uri.parse(wsUrl));
-    _wsChannel!.stream.listen(
-      (event) {
-        try {
-          final data = jsonDecode(event);
-          final type = data['type'] as String?;
-
-          // 常见事件：
-          // - like_update: 帖子点赞变化（保持原有处理）
-          // - comment_like_update: 单条评论的点赞变化
-          // - comment_created: 新评论推送，payload 中包含 comment 对象
-          // - comment_updated: 评论被更新，payload 中包含 comment 对象
-          // - comment_deleted: 评论被删除，payload 中包含 commentId
-          // - favorite_update: 帖子收藏变化
-
-          if (type == 'like_update') {
-            setState(() {
-              if (data.containsKey('likesCount'))
-                likeCount = data['likesCount'] as int;
-              if (data.containsKey('isLiked'))
-                isLiked = data['isLiked'] as bool;
-            });
-          } else if (type == 'favorite_update') {
-            setState(() {
-              if (data.containsKey('favoriteCount'))
-                widget.post.favoriteCount = data['favoriteCount'] as int;
-              if (data.containsKey('isSaved'))
-                widget.post.isSaved = data['isSaved'] as bool;
-            });
-          } else if (type == 'comment_like_update' &&
-              data['commentId'] != null) {
-            // 评论点赞变更
-            final commentId = data['commentId'] as String;
-            final idx = _comments.indexWhere((c) => c.id == commentId);
-            if (idx != -1) {
-              setState(() {
-                if (data.containsKey('likesCount'))
-                  _comments[idx].likesCount = data['likesCount'] as int;
-                if (data.containsKey('isLiked'))
-                  _comments[idx].isLiked = data['isLiked'] as bool;
-              });
-            } else {
-              // 可能是子回复的点赞变化
-              for (var parent in _comments) {
-                final ridx = parent.replies.indexWhere(
-                  (r) => r.id == commentId,
-                );
-                if (ridx != -1) {
-                  setState(() {
-                    if (data.containsKey('likesCount'))
-                      parent.replies[ridx].likesCount =
-                          data['likesCount'] as int;
-                    if (data.containsKey('isLiked'))
-                      parent.replies[ridx].isLiked = data['isLiked'] as bool;
-                  });
-                  break;
-                }
-              }
-            }
-          } else if (type == 'comment_created') {
-            // 服务器推送新评论
-            _handleCommentCreated(data);
-          } else if (type == 'comment_updated') {
-            _handleCommentUpdated(data);
-          } else if (type == 'comment_deleted') {
-            _handleCommentDeleted(data);
-          }
-        } catch (e) {
-          // ignore: 格式或解析错误，避免影响主流程
-        }
-      },
-      onError: (err) {
-        // 可选：记录错误或做重连策略
-      },
-      onDone: () {
-        // 可选：自动重连（根据实际需要实现）
-      },
-    );
-  }
-
-  void _handleCommentCreated(Map<String, dynamic> data) {
-    // 期望 payload 在 data['comment'] 或 data['payload'] 中
-    final commentJson =
-        (data['comment'] ?? data['payload'] ?? data['data'])
-            as Map<String, dynamic>?;
-    if (commentJson == null) return;
-
-    try {
-      final newComment = Comment.fromJson(commentJson);
-
-      setState(() {
-        // 防止重复插入：检查顶层评论和所有子回复
-        bool exists = false;
-
-        // 检查顶层评论
-        if (_comments.any((c) => c.id == newComment.id)) {
-          exists = true;
-        }
-
-        // 检查所有子回复
-        if (!exists) {
-          for (var comment in _comments) {
-            if (comment.replies.any((r) => r.id == newComment.id)) {
-              exists = true;
-              break;
-            }
-          }
-        }
-
-        if (exists) {
-          return; // 已存在，忽略
-        }
-
-        if (newComment.parentId == null) {
-          // 顶层评论，插入到顶部
-          _comments.insert(0, newComment);
-          widget.post.commentsCount += 1;
-        } else {
-          // 找到父评论并追加到 replies
-          final pIdx = _comments.indexWhere((c) => c.id == newComment.parentId);
-          if (pIdx != -1) {
-            // 防止重复
-            if (!_comments[pIdx].replies.any((r) => r.id == newComment.id)) {
-              _comments[pIdx].replies.add(newComment);
-              // 楼中楼回复也需要计入总数
-              widget.post.commentsCount += 1;
-            }
-          } else {
-            // parent评论不在当前页/列表中，作为降级处理，把回复也插为顶层（可根据需求改为忽略）
-            _comments.insert(0, newComment);
-            widget.post.commentsCount += 1;
-          }
-        }
-      });
-    } catch (e) {
-      // ignore: 如果解析失败则不阻塞
-    }
-  }
-
-  void _handleCommentUpdated(Map<String, dynamic> data) {
-    final commentJson =
-        (data['comment'] ?? data['payload'] ?? data['data'])
-            as Map<String, dynamic>?;
-    if (commentJson == null) return;
-
-    try {
-      final updated = Comment.fromJson(commentJson);
-
-      setState(() {
-        // 先尝试在顶层查找
-        final tIdx = _comments.indexWhere((c) => c.id == updated.id);
-        if (tIdx != -1) {
-          // 保留子 replies（如果后端未返回）
-          final oldReplies = _comments[tIdx].replies;
-          _comments[tIdx] = Comment(
-            id: updated.id,
-            author: updated.author,
-            content: updated.content,
-            parentId: updated.parentId,
-            replyTo: updated.replyTo,
-            likesCount: updated.likesCount,
-            isLiked: updated.isLiked,
-            replies: oldReplies,
-            createdAt: updated.createdAt,
-          );
-          return;
-        }
-
-        // 在子回复中查找
-        for (var parent in _comments) {
-          final rIdx = parent.replies.indexWhere((r) => r.id == updated.id);
-          if (rIdx != -1) {
-            final oldReplies = parent.replies[rIdx].replies;
-            parent.replies[rIdx] = Comment(
-              id: updated.id,
-              author: updated.author,
-              content: updated.content,
-              parentId: updated.parentId,
-              replyTo: updated.replyTo,
-              likesCount: updated.likesCount,
-              isLiked: updated.isLiked,
-              replies: oldReplies,
-              createdAt: updated.createdAt,
-            );
-            break;
-          }
-        }
-      });
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  void _handleCommentDeleted(Map<String, dynamic> data) {
-    // 期望 data 包含 commentId 或 payload
-    final commentId =
-        (data['commentId'] ??
-                data['id'] ??
-                (data['payload'] is Map ? data['payload']['id'] : null))
-            as String?;
-    if (commentId == null) return;
-
-    setState(() {
-      // 从顶层删除
-      final tIdx = _comments.indexWhere((c) => c.id == commentId);
-      if (tIdx != -1) {
-        final deletedComment = _comments[tIdx];
-        final deletedCount = 1 + deletedComment.replies.length;
-        _comments.removeAt(tIdx);
-        widget.post.commentsCount = (widget.post.commentsCount >= deletedCount)
-            ? widget.post.commentsCount - deletedCount
-            : 0;
-        return;
-      }
-
-      // 从子回复中删除
-      for (int i = 0; i < _comments.length; i++) {
-        final parent = _comments[i];
-        final rIdx = parent.replies.indexWhere((r) => r.id == commentId);
-        if (rIdx != -1) {
-          // 重新创建parent评论，移除被删除的回复
-          final updatedReplies = parent.replies
-              .where((r) => r.id != commentId)
-              .toList();
-          _comments[i] = Comment(
-            id: parent.id,
-            author: parent.author,
-            content: parent.content,
-            parentId: parent.parentId,
-            replyTo: parent.replyTo,
-            likesCount: parent.likesCount,
-            isLiked: parent.isLiked,
-            replies: updatedReplies,
-            createdAt: parent.createdAt,
-          );
-          widget.post.commentsCount = (widget.post.commentsCount > 0)
-              ? widget.post.commentsCount - 1
-              : 0;
-          return;
-        }
-      }
-    });
-  }
 
 
 
-
-
-
-
-  Future<void> _submitComment({String? parentId, Author? replyTo}) async {
+  /// 提交评论：解析输入框中的 @用户名（输入层职责），把数据/网络交给 controller。
+  /// 成功后清空输入框与 @提及 UI 状态。
+  Future<void> _handleCommentSubmit({String? parentId, Author? replyTo}) async {
     final text = _commentController.text.trim();
     if (text.isEmpty) return;
-    if (_isSubmittingComment) return;
 
+    // 解析评论内容中实际存在的@用户名（格式：@A @B @C，有空格）。
+    final RegExp mentionRegex = RegExp(r'@([^\s@]+)');
+    final Set<String> actualMentionedNames = {};
+    for (final match in mentionRegex.allMatches(text)) {
+      final userName = match.group(1)!.trim();
+      if (userName.isNotEmpty && !userName.startsWith('@')) {
+        actualMentionedNames.add(userName.toLowerCase());
+      }
+    }
+
+    // 从 _selectedMentions 中提取在评论内容中实际存在的 @用户 ID。
+    final List<String> mentionIds = [];
+    for (final entry in _selectedMentions.entries) {
+      if (actualMentionedNames.contains(entry.key)) {
+        mentionIds.add(entry.value.id);
+      }
+    }
+
+    // 清空已选择的 @用户列表（与原逻辑一致：提交前先清）。
+    _selectedMentions.clear();
+
+    final ok = await _controller.submitComment(
+      text: text,
+      mentionIds: mentionIds,
+      parentId: parentId,
+      replyTo: replyTo,
+    );
+
+    if (!ok || !mounted) return;
+
+    // 提交成功：清空输入框与 @提及 UI 状态、关闭键盘、清除回复状态。
     setState(() {
-      _isSubmittingComment = true;
-    });
-
-    try {
-      // 解析评论内容中实际存在的@用户名，正确匹配每个@用户名（格式：@A @B @C，有空格）
-      // 使用更精确的正则表达式，匹配@后面跟着非@非空格的字符
-      final RegExp mentionRegex = RegExp(r'@([^\s@]+)');
-      final Set<String> actualMentionedNames = {};
-      for (final match in mentionRegex.allMatches(text)) {
-        final userName = match.group(1)!.trim();
-        if (userName.isNotEmpty && !userName.startsWith('@')) {
-          actualMentionedNames.add(userName.toLowerCase());
-        }
-      }
-
-      // 从_selectedMentions中提取所有在评论内容中实际存在的@用户的ID
-      final List<String> mentionIds = [];
-      for (final entry in _selectedMentions.entries) {
-        if (actualMentionedNames.contains(entry.key)) {
-          mentionIds.add(entry.value.id);
-        }
-      }
-
-      print('[@功能] 提交评论 - actualMentionedNames: $actualMentionedNames');
-      print(
-        '[@功能] 提交评论 - _selectedMentions: ${_selectedMentions.map((k, v) => MapEntry(k, '${v.name}(${v.id})'))}',
-      );
-      print('[@功能] 提交评论 - mentionIds: $mentionIds');
-
-      // 如果_selectedMentions中没有匹配到，尝试从文本中直接解析（处理手动输入的情况）
-      // 但这种情况下的@用户名不会被识别为有效的mention，因为不在_selectedMentions中
-
-      print('[@功能] 提交评论，文本: "$text"');
-      print('[@功能] 解析到的@用户名: ${actualMentionedNames.toList()}');
-      print('[@功能] _selectedMentions中的用户: ${_selectedMentions.keys.toList()}');
-      print('[@功能] 最终mentionIds: $mentionIds');
-
-      // 调用真实后端 API 创建评论
-      final resp = await ApiService.createComment(
-        widget.post.id,
-        text,
-        parentId: parentId,
-        replyToId: replyTo?.id,
-        mentionIds: mentionIds.isNotEmpty ? mentionIds : null,
-      );
-
-      // 清空已选择的@用户列表
+      _commentController.clear();
       _selectedMentions.clear();
-
-      final status = resp['statusCode'] as int? ?? 500;
-      final body = resp['body'] as Map<String, dynamic>?;
-
-      print('创建评论响应: status=$status, body=$body'); // 调试日志
-
-      if (status >= 200 && status < 300 && body != null) {
-        // 评论创建成功，等待 WebSocket 推送来更新列表（避免重复添加）
-        // 如果 WebSocket 没有推送，则手动刷新评论列表
-        setState(() {
-          _commentController.clear();
-          _selectedMentions.clear();
-          _showMentionList = false;
-          _mentionQuery = '';
-          _mentionStartIndex = -1;
-          _mentionCandidates.clear(); // 清空候选列表
-          // 手动增加评论总数（因为WebSocket推送不给自己）
-          widget.post.commentsCount += 1;
-        });
-
-        // 失去焦点，关闭键盘
-        _commentFocusNode.unfocus();
-
-        if (_currentReplyTo != null) {
-          _cancelReply(); // 清除回复状态
-        }
-
-        // 延迟刷新评论列表，给 WebSocket 推送一些时间
-        Future.delayed(const Duration(milliseconds: 500), () {
-          if (mounted) {
-            _loadComments(refresh: true);
-          }
-        });
-
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('评论发表成功')));
-        }
-      } else {
-        // 处理错误响应
-        String errorMsg = '评论失败，请稍后重试';
-        if (status == 401 || status == 403) {
-          errorMsg = body != null && body['message'] != null
-              ? body['message'].toString()
-              : '未认证，请先登录';
-        } else if (body != null && body['message'] != null) {
-          errorMsg = body['message'].toString();
-        }
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(errorMsg)));
-        }
-      }
-    } catch (e, stackTrace) {
-      print('创建评论异常: $e');
-      print('堆栈跟踪: $stackTrace');
-      if (mounted) {
-        final errorMsg = e.toString().contains('超时')
-            ? '请求超时，请检查网络连接'
-            : '网络错误，评论未成功，请稍后重试';
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(errorMsg)));
-      }
-    } finally {
-      setState(() {
-        _isSubmittingComment = false;
-      });
+      _showMentionList = false;
+      _mentionQuery = '';
+      _mentionStartIndex = -1;
+      _mentionCandidates.clear();
+    });
+    _commentFocusNode.unfocus();
+    if (_currentReplyTo != null) {
+      _cancelReply();
     }
   }
 
@@ -1690,12 +1153,12 @@ class _PostDetailScreenState extends State<PostDetailScreen>
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  Future<void> _deleteComment(
+  /// 删除评论：先弹确认框（需要 BuildContext），确认后把数据/网络交给 controller。
+  Future<void> _confirmDeleteComment(
     Comment comment, {
     required bool isTopLevel,
     Comment? parentComment,
   }) async {
-    // 确认删除
     final itemName = isTopLevel ? '评论' : '回复';
     final additionalWarning = isTopLevel ? '删除后所有回复也会被删除。' : null;
 
@@ -1707,61 +1170,11 @@ class _PostDetailScreenState extends State<PostDetailScreen>
 
     if (confirmed != true) return;
 
-    setState(() {
-      _isDeleting = true;
-    });
-
-    try {
-      final resp = await ApiService.deleteComment(widget.post.id, comment.id);
-      if (resp['statusCode'] == 204 || resp['statusCode'] == 200) {
-        // 从列表中移除评论
-        setState(() {
-          if (isTopLevel) {
-            // 计算需要减少的评论数（包括所有子回复）
-            final deletedCount = 1 + comment.replies.length;
-            _comments.removeWhere((c) => c.id == comment.id);
-            widget.post.commentsCount =
-                (widget.post.commentsCount >= deletedCount)
-                ? widget.post.commentsCount - deletedCount
-                : 0;
-          } else if (parentComment != null) {
-            // 找到父评论的索引
-            final parentIndex = _comments.indexWhere(
-              (c) => c.id == parentComment.id,
-            );
-            if (parentIndex != -1) {
-              // 重新创建父评论，移除被删除的回复
-              final updatedReplies = parentComment.replies
-                  .where((r) => r.id != comment.id)
-                  .toList();
-              _comments[parentIndex] = Comment(
-                id: parentComment.id,
-                author: parentComment.author,
-                content: parentComment.content,
-                parentId: parentComment.parentId,
-                replyTo: parentComment.replyTo,
-                likesCount: parentComment.likesCount,
-                isLiked: parentComment.isLiked,
-                replies: updatedReplies,
-                createdAt: parentComment.createdAt,
-              );
-              widget.post.commentsCount = (widget.post.commentsCount > 0)
-                  ? widget.post.commentsCount - 1
-                  : 0;
-            }
-          }
-        });
-        _showSnack('评论已删除');
-      } else {
-        _showSnack('删除失败，请稍后重试');
-      }
-    } catch (e) {
-      _showSnack('删除失败: $e');
-    } finally {
-      setState(() {
-        _isDeleting = false;
-      });
-    }
+    await _controller.deleteComment(
+      comment,
+      isTopLevel: isTopLevel,
+      parentComment: parentComment,
+    );
   }
 
 
@@ -1800,7 +1213,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                 ),
                 onPressed: _isLoadingComments
                     ? null
-                    : () => _loadComments(refresh: true),
+                    : () => _controller.loadComments(refresh: true),
                 tooltip: '刷新评论',
               ),
             ],
@@ -1821,7 +1234,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                   child: _isLoadingComments
                       ? CircularProgressIndicator(color: scheme.primary)
                       : TextButton.icon(
-                          onPressed: _loadComments,
+                          onPressed: () => _controller.loadComments(),
                           icon: Icon(
                             Icons.refresh,
                             color: scheme.onSurfaceVariant,
@@ -1835,7 +1248,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
               );
             }
             final c = _comments[idx];
-            final inFlight = _commentLikeInFlight.contains(c.id);
+            final inFlight = _controller.isCommentLikeInFlight(c.id);
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1865,7 +1278,8 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                           color: Colors.red[300],
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
-                          onPressed: () => _deleteComment(c, isTopLevel: true),
+                          onPressed: () =>
+                              _confirmDeleteComment(c, isTopLevel: true),
                         ),
                     ],
                   ),
@@ -1917,7 +1331,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                             ),
                             onPressed: inFlight
                                 ? null
-                                : () => _handleCommentLikePressed(c),
+                                : () => _controller.handleCommentLikePressed(c),
                           ),
                         ],
                       ),
@@ -1930,7 +1344,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                     padding: const EdgeInsets.only(left: 56.0),
                     child: Column(
                       children: c.replies.map((reply) {
-                        final replyInFlight = _commentLikeInFlight.contains(
+                        final replyInFlight = _controller.isCommentLikeInFlight(
                           reply.id,
                         );
                         return ListTile(
@@ -1962,7 +1376,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                                   color: Colors.red[300],
                                   padding: EdgeInsets.zero,
                                   constraints: const BoxConstraints(),
-                                  onPressed: () => _deleteComment(
+                                  onPressed: () => _confirmDeleteComment(
                                     reply,
                                     isTopLevel: false,
                                     parentComment: c,
@@ -2024,8 +1438,8 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                                     ),
                                     onPressed: replyInFlight
                                         ? null
-                                        : () =>
-                                              _handleCommentLikePressed(reply),
+                                        : () => _controller
+                                              .handleCommentLikePressed(reply),
                                   ),
                                 ],
                               ),
@@ -2042,59 +1456,6 @@ class _PostDetailScreenState extends State<PostDetailScreen>
         const SizedBox(height: 80),
       ],
     );
-  }
-
-  Future<void> _handleCommentLikePressed(Comment c) async {
-    if (_commentLikeInFlight.contains(c.id)) return;
-    _commentLikeInFlight.add(c.id);
-
-    final prevLiked = c.isLiked;
-    final prevCount = c.likesCount;
-
-    // 乐观更新
-    setState(() {
-      c.isLiked = !c.isLiked;
-      c.likesCount += c.isLiked ? 1 : -1;
-    });
-
-    try {
-      // 调用后端的评论点赞/取消点赞接口
-      final resp = c.isLiked
-          ? await ApiService.likeComment(widget.post.id, c.id)
-          : await ApiService.unlikeComment(widget.post.id, c.id);
-
-      final status = resp['statusCode'] as int? ?? 500;
-      final body = resp['body'] as Map<String, dynamic>?;
-      if (status >= 200 && status < 300 && body != null) {
-        setState(() {
-          if (body.containsKey('likesCount'))
-            c.likesCount = body['likesCount'] as int;
-          if (body.containsKey('isLiked')) c.isLiked = body['isLiked'] as bool;
-        });
-      } else {
-        // 回滚乐观更新
-        setState(() {
-          c.isLiked = prevLiked;
-          c.likesCount = prevCount;
-        });
-        final msg = body != null && body['message'] != null
-            ? body['message'].toString()
-            : '操作失败';
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(msg)));
-      }
-    } catch (e) {
-      setState(() {
-        c.isLiked = prevLiked;
-        c.likesCount = prevCount;
-      });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('网络错误，操作未成功')));
-    } finally {
-      _commentLikeInFlight.remove(c.id);
-    }
   }
 
   Widget _buildBottomCommentInput() {
@@ -2438,7 +1799,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                 ),
                 const SizedBox(width: 8),
                 ElevatedButton(
-                  onPressed: () => _submitComment(
+                  onPressed: () => _handleCommentSubmit(
                     parentId: _currentReplyParentId,
                     replyTo: _currentReplyTo?.author,
                   ),
@@ -2459,169 +1820,13 @@ class _PostDetailScreenState extends State<PostDetailScreen>
 
   // ===== 从 post_actions 移入的 action 方法 =====
 
-  bool get _isOwner =>
-      _currentUserId != null && widget.post.author.id == _currentUserId;
-
-  void _toggleLike() {
-    // keep backward-compatible call site (double tap)
-    _handlePostLikePressed();
-  }
-
-  Future<void> _handlePostLikePressed() async {
-    if (_postLikeInFlight) return; // 防止重复请求
-    _postLikeInFlight = true;
-
-    final previousLiked = isLiked;
-    final previousCount = likeCount;
-
-    // 乐观更新
-    setState(() {
-      isLiked = !isLiked;
-      likeCount += isLiked ? 1 : -1;
-      widget.post.isLiked = isLiked;
-      widget.post.likesCount = likeCount;
-    });
-
-    if (isLiked) {
-      // 仅控制动画显示，不作为大爱心常驻显示的条件
-      setState(() {
-        _showBigHeart = true;
-      });
-      _heartCtrl.forward(from: 0.0);
-    }
-
-    try {
-      final resp = isLiked
-          ? await ApiService.likePost(widget.post.id)
-          : await ApiService.unlikePost(widget.post.id);
-      final status = (resp['statusCode'] ?? 500) as int;
-      final body = resp['body'] as Map<String, dynamic>?;
-
-      print('点赞响应: status=$status, body=$body'); // 调试日志
-
-      if (status >= 200 && status < 300) {
-        // 如果后端返回了最新计数，则以后端为准
-        if (body != null &&
-            body.containsKey('likesCount') &&
-            body.containsKey('isLiked')) {
-          setState(() {
-            likeCount = body['likesCount'] as int;
-            isLiked = body['isLiked'] as bool;
-            widget.post.likesCount = likeCount;
-            widget.post.isLiked = isLiked;
-          });
-        } else if (body != null && body.containsKey('message')) {
-          // 如果只有 message，说明可能是 204 或其他情况，保持乐观更新
-          print('警告: 响应缺少 likesCount 或 isLiked，保持乐观更新');
-        }
-        // （可选）如果后端不自动创建通知，前端可以调用通知接口：
-        // await ApiService.createNotification({ ... });
-      } else {
-        // 请求失败 -> 回滚
-        setState(() {
-          isLiked = previousLiked;
-          likeCount = previousCount;
-          widget.post.isLiked = previousLiked;
-          widget.post.likesCount = previousCount;
-        });
-        final msg = body != null && body['message'] != null
-            ? body['message'].toString()
-            : '点赞失败，请稍后重试';
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(msg)));
-        }
-      }
-    } catch (e, stackTrace) {
-      // 网络或解析错误 -> 回滚
-      print('点赞异常: $e');
-      print('堆栈跟踪: $stackTrace');
-      setState(() {
-        isLiked = previousLiked;
-        likeCount = previousCount;
-        widget.post.isLiked = previousLiked;
-        widget.post.likesCount = previousCount;
-      });
-      if (mounted) {
-        final errorMsg = e.toString().contains('超时')
-            ? '请求超时，请检查网络连接'
-            : '网络错误，点赞未成功，请稍后重试';
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(errorMsg)));
-      }
-    } finally {
-      _postLikeInFlight = false;
-    }
-  }
-
-  Future<void> _toggleSave() async {
-    if (_saveInFlight) return;
-    _saveInFlight = true;
-    final previousSaved = isSaved;
-    final previousFavoriteCount = widget.post.favoriteCount;
-    // 只对收藏状态做乐观更新，不对数量做乐观更新
-    setState(() {
-      isSaved = !isSaved;
-      widget.post.isSaved = isSaved;
-    });
-    try {
-      final resp = isSaved
-          ? await ApiService.favoritePost(widget.post.id)
-          : await ApiService.unfavoritePost(widget.post.id);
-      final status = resp['statusCode'] as int? ?? 500;
-      final body = resp['body'] as Map<String, dynamic>?;
-      if (status >= 200 && status < 300) {
-        if (body != null) {
-          final serverValue = body['isSaved'] as bool?;
-          final serverFavoritesCount = body['favoritesCount'] as int?;
-          setState(() {
-            if (serverValue != null) {
-              isSaved = serverValue;
-              widget.post.isSaved = serverValue;
-            }
-            if (serverFavoritesCount != null) {
-              widget.post.favoriteCount = serverFavoritesCount;
-            }
-          });
-        }
-      } else {
-        setState(() {
-          isSaved = previousSaved;
-          widget.post.isSaved = previousSaved;
-        });
-        final msg = body != null && body['message'] != null
-            ? body['message'].toString()
-            : '收藏操作失败';
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(msg)));
-        }
-      }
-    } catch (e) {
-      setState(() {
-        isSaved = previousSaved;
-        widget.post.isSaved = previousSaved;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('网络错误，收藏操作未成功')));
-      }
-    } finally {
-      _saveInFlight = false;
-    }
-  }
-
   Future<void> _openUserProfile(String userId) async {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (context) => ProfilePage(userId: userId)),
     );
     // 从用户主页返回时，刷新关注状态（特别是如果用户在该页面取关了作者）
     if (userId == widget.post.author.id && _currentUserId != userId) {
-      await _checkFollowStatus();
+      await _controller.checkFollowStatus();
     }
   }
 
@@ -2761,33 +1966,8 @@ class _PostDetailScreenState extends State<PostDetailScreen>
     );
 
     if (confirmed == true) {
-      await _deletePost();
-    }
-  }
-
-  Future<void> _deletePost() async {
-    setState(() => _isDeleting = true);
-    try {
-      final resp = await ApiService.deletePost(widget.post.id);
-      final status = resp['statusCode'] as int? ?? 500;
-      final body = resp['body'] as Map<String, dynamic>?;
-
-      if (status >= 200 && status < 300) {
-        if (!mounted) return;
-        Navigator.of(context).pop(true);
-        return;
-      }
-
-      final msg = body != null && body['message'] != null
-          ? body['message'].toString()
-          : '删除失败，请稍后重试';
-      _showSnack(msg);
-    } catch (e) {
-      _showSnack('删除失败：$e');
-    } finally {
-      if (mounted) {
-        setState(() => _isDeleting = false);
-      }
+      // 删除成功后由 controller 的 onPostDeleted 回调 pop 返回上一页。
+      await _controller.deletePost();
     }
   }
 
@@ -2800,7 +1980,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
 
     // 编辑页返回 true，表示"保存成功，需要刷新详情"
     if (result == true) {
-      await _loadPostDetail();
+      await _controller.loadPostDetail();
     }
   }
 
@@ -2813,25 +1993,6 @@ class _PostDetailScreenState extends State<PostDetailScreen>
       return '${diff.inMinutes} 分钟前';
     if (diff.inHours < 24) return '${diff.inHours} 小时前';
     return '${diff.inDays} 天前';
-  }
-
-  bool _isPdf(String url) {
-    if (url.isEmpty) return false;
-    try {
-      final uri = Uri.tryParse(url);
-      final path = uri?.path.toLowerCase() ?? url.toLowerCase();
-      if (path.endsWith('.pdf')) return true;
-      if (path.contains('/pdf/') || path.contains('/pdfs/')) return true;
-      final query = uri?.queryParameters;
-      if (query != null) {
-        final type =
-            query['type']?.toLowerCase() ?? query['format']?.toLowerCase();
-        if (type == 'pdf' || type == 'application/pdf') return true;
-      }
-      return false;
-    } catch (_) {
-      return url.toLowerCase().endsWith('.pdf');
-    }
   }
 
   void _onTagTap(String tag) {
@@ -2867,24 +2028,6 @@ class _PostDetailScreenState extends State<PostDetailScreen>
       }
     } catch (_) {
       _showSnack('无法打开下载链接');
-    }
-  }
-
-  Future<Map<String, dynamic>> _fetchReferencePost(int postId) async {
-    if (_referencePostCache.containsKey(postId)) {
-      return _referencePostCache[postId]!;
-    }
-    try {
-      final resp = await ApiService.getPost(postId.toString());
-      if (resp['statusCode'] == 200) {
-        final postData = resp['body'];
-        _referencePostCache[postId] = postData;
-        return postData;
-      } else {
-        throw Exception('无法获取引用帖子');
-      }
-    } catch (e) {
-      throw e;
     }
   }
 
@@ -2941,68 +2084,6 @@ class _PostDetailScreenState extends State<PostDetailScreen>
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
-  List<String> get _imageMedia =>
-      widget.post.media.where((m) => !_isPdf(m)).toList();
-
-  List<String> get _pdfMedia => widget.post.media.where(_isPdf).toList();
-
-  Future<void> _loadImageSize() async {
-    if (_isLoadingImageSize || _imageMedia.isEmpty) return;
-
-    setState(() {
-      _isLoadingImageSize = true;
-    });
-
-    try {
-      final imageUrl = _imageMedia.first;
-      final imageProvider = NetworkImage(imageUrl);
-
-      // 使用 ImageProvider.resolve 获取图片信息
-      final ImageStream stream = imageProvider.resolve(
-        const ImageConfiguration(),
-      );
-      final Completer<void> completer = Completer<void>();
-
-      ImageStreamListener? listener;
-      listener = ImageStreamListener(
-        (ImageInfo info, bool synchronousCall) {
-          if (!mounted) return;
-
-          final image = info.image;
-          setState(() {
-            _actualImageWidth = image.width.toDouble();
-            _actualImageHeight = image.height.toDouble();
-            _isLoadingImageSize = false;
-          });
-
-          stream.removeListener(listener!);
-          if (!completer.isCompleted) {
-            completer.complete();
-          }
-        },
-        onError: (exception, stackTrace) {
-          stream.removeListener(listener!);
-          if (!completer.isCompleted) {
-            completer.complete();
-          }
-          if (mounted) {
-            setState(() {
-              _isLoadingImageSize = false;
-            });
-          }
-        },
-      );
-
-      stream.addListener(listener);
-      await completer.future;
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _isLoadingImageSize = false;
-        });
-      }
-    }
-  }
 
   void _toggleImageFullscreen() {
     setState(() {
@@ -3336,7 +2417,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                     isHoveringImage: _isHoveringImage,
                     showBigHeart: _showBigHeart,
                     heartScale: _heartScale,
-                    onDoubleTap: _toggleLike,
+                    onDoubleTap: _controller.handlePostLikePressed,
                     onImageTap: _toggleImageFullscreen,
                     onNextImage: _goToNextImage,
                     onPreviousImage: _goToPreviousImage,
@@ -3361,12 +2442,12 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                     pdfMedia: _pdfMedia,
                     onAuthorTap: () =>
                         _openUserProfile(widget.post.author.id),
-                    onToggleFollow: _toggleFollow,
+                    onToggleFollow: _controller.toggleFollow,
                     onTagTap: _onTagTap,
                     onOpenPdfPreview: _openPdfPreview,
                     onDownloadPdf: _downloadPdf,
                     onOpenExternalLink: _openExternalLink,
-                    onFetchReferencePost: _fetchReferencePost,
+                    onFetchReferencePost: _controller.fetchReferencePost,
                     onNavigateToReferencePost: _navigateToReferencePost,
                   ),
                   PostActionsBar(
@@ -3374,10 +2455,10 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                     isLiked: isLiked,
                     likeCount: likeCount,
                     isSaved: isSaved,
-                    onLike: _toggleLike,
+                    onLike: _controller.handlePostLikePressed,
                     onComment: () =>
                         FocusScope.of(context).requestFocus(FocusNode()),
-                    onSave: _toggleSave,
+                    onSave: _controller.toggleSave,
                     onShare: _onShare,
                   ),
                   _buildCommentsSection(),
