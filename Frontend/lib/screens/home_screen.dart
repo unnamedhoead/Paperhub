@@ -30,8 +30,7 @@ import '../models/notification_model.dart';
 import '../services/local_storage.dart';
 import '../services/browse_history_service.dart';
 import '../constants/discipline_constants.dart';
-import '../constants/app_colors.dart';
-import '../utils/font_utils.dart';
+import 'home/home_tab_bar.dart';
 
 /// 首页入口组件（Stateful）：承载发现流与分区切换
 class HomeScreen extends StatefulWidget {
@@ -551,7 +550,15 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           children: [
             // 顶部导航栏
-            _buildTopBar(),
+            HomeTabBar(
+              selectedTab: _selectedTab,
+              followingHasNew: _followingHasNew,
+              themeModeNotifier: widget.themeModeNotifier,
+              onThemeToggle: widget.onThemeToggle,
+              onThemeModeChanged: widget.onThemeModeChanged,
+              onTabSelected: _onTabSelected,
+              onSearchTap: _onSearchTap,
+            ),
 
             // 内容区域
             Expanded(
@@ -573,171 +580,42 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // 顶部栏
-  Widget _buildTopBar() {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 3,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          // Logo和PaperHub文字
-          Row(
-            children: [
-              Image.asset(
-                'assets/images/logo.png',
-                height: 32,
-                width: 32,
-                errorBuilder: (context, error, stackTrace) {
-                  return const SizedBox(width: 32, height: 32);
-                },
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'PaperHub',
-                style: FontUtils.textStyle(
-                  text: 'PaperHub',
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: scheme.onSurface,
-                ),
-              ),
-            ],
-          ),
-
-          // 中间按钮组
-          Expanded(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _buildTabButton("关注", 0, showUnreadDot: _followingHasNew),
-                const SizedBox(width: 24),
-                _buildTabButton("发现", 1),
-                const SizedBox(width: 24),
-                _buildTabButton("分区", 2),
-              ],
-            ),
-          ),
-
-          // 搜索图标
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (widget.themeModeNotifier != null)
-                ValueListenableBuilder<ThemeMode>(
-                  valueListenable: widget.themeModeNotifier!,
-                  builder: (_, mode, __) {
-                    final isDark = mode == ThemeMode.dark;
-                    return IconButton(
-                      tooltip: isDark ? '切换日间模式' : '切换夜间模式',
-                      icon: Icon(
-                        isDark ? Icons.dark_mode : Icons.light_mode,
-                        color: scheme.onSurface.withOpacity(0.8),
-                      ),
-                      onPressed: widget.onThemeToggle ??
-                          () {
-                            final next =
-                                isDark ? ThemeMode.light : ThemeMode.dark;
-                            widget.onThemeModeChanged?.call(next);
-                          },
-                    );
-                  },
-                ),
-              InkWell(
-                onTap: _onSearchTap,
-                borderRadius: BorderRadius.circular(20),
-                child: Padding(
-                  padding: const EdgeInsets.all(6.0),
-                  child: Icon(Icons.search,
-                      color: scheme.onSurface.withOpacity(0.7), size: 22),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  // 顶部"关注 / 发现 / 分区"按钮样式
-  Widget _buildTabButton(String label, int index,
-      {bool showUnreadDot = false}) {
-    final bool selected = _selectedTab == index;
-    return GestureDetector(
-      onTap: () {
-        final bool wasSelected = _selectedTab == index;
-        setState(() {
-          _selectedTab = index;
-          if (index == 0) {
-            _followingHasNew = false; // 进入关注页后红点立即消失
-            if (_followingPosts.isNotEmpty) {
-              // 记录当前关注流顶部帖子，后续刷新用于判断是否有新内容
-              _updateLastFollowingSeen(_followingPosts.first.id);
-            }
-          }
-          // 离开发现页即清除置顶的"我刚发的"帖子
-          if (index != 1) {
-            _pinnedSelfPost = null;
-          }
-        });
-
-        // 懒加载关注流 / 分区内容
-        if (index == 0 && _followingPosts.isEmpty && !_followingLoading) {
-          _loadInitialFollowingPosts();
-        } else if (index == 2 &&
-            _zonePosts.isEmpty &&
-            !_zoneLoading &&
-            _zoneHasMore) {
-          _loadZonePosts();
-        } else if (index == 1) {
-          // 从其他 tab 切回发现时，触发一次关注流刷新以获取最新关注动态
-          _refreshFollowingFeed();
+  /// 顶部 tab 切换处理：维护选中状态、红点清除、置顶帖清理与懒加载。
+  void _onTabSelected(int index) {
+    final bool wasSelected = _selectedTab == index;
+    setState(() {
+      _selectedTab = index;
+      if (index == 0) {
+        _followingHasNew = false; // 进入关注页后红点立即消失
+        if (_followingPosts.isNotEmpty) {
+          // 记录当前关注流顶部帖子，后续刷新用于判断是否有新内容
+          _updateLastFollowingSeen(_followingPosts.first.id);
         }
+      }
+      // 离开发现页即清除置顶的"我刚发的"帖子
+      if (index != 1) {
+        _pinnedSelfPost = null;
+      }
+    });
 
-        // 点击"发现"文案时，触发刷新推荐流（小红书同款）
-        if (index == 1 && wasSelected) {
-          _pinnedSelfPost = null;
-          _feedKey.currentState?.reloadFeed();
-        }
-      },
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Text(
-            label,
-            style: FontUtils.textStyle(
-              text: label,
-              fontSize: 16,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.normal,
-              color: selected ? AppColors.primary : AppColors.textSecondary,
-            ),
-          ),
-          if (showUnreadDot)
-            Positioned(
-              right: -12,
-              top: -6,
-              child: Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  color: Colors.redAccent,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
+    // 懒加载关注流 / 分区内容
+    if (index == 0 && _followingPosts.isEmpty && !_followingLoading) {
+      _loadInitialFollowingPosts();
+    } else if (index == 2 &&
+        _zonePosts.isEmpty &&
+        !_zoneLoading &&
+        _zoneHasMore) {
+      _loadZonePosts();
+    } else if (index == 1) {
+      // 从其他 tab 切回发现时，触发一次关注流刷新以获取最新关注动态
+      _refreshFollowingFeed();
+    }
+
+    // 点击"发现"文案时，触发刷新推荐流（小红书同款）
+    if (index == 1 && wasSelected) {
+      _pinnedSelfPost = null;
+      _feedKey.currentState?.reloadFeed();
+    }
   }
 
   /// 分区首页内容：顶部分区滑条 + 当前分区的瀑布流
