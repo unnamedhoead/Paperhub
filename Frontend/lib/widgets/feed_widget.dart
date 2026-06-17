@@ -7,15 +7,9 @@ import '../widgets/post_card.dart';
 import '../services/api_service.dart';
 import '../services/local_storage.dart';
 
-/// 首页发现流独立组件。
+/// 首页发现流独立组件——管理瀑布流加载/分页/热度排序/点赞。
 ///
-/// 管理发现页的帖子瀑布流，包括：
-/// - 首屏加载与下拉分页
-/// - 热度排序兜底
-/// - 自身点赞的乐观更新
-/// - 置顶帖（来自发布回流）
-///
-/// 通过 [FeedWidgetState.reloadFeed] / [refreshFirstPage] 供父组件触发刷新。
+/// 父组件通过 [FeedWidgetState.reloadFeed] / [refreshFirstPage] 触发刷新。
 class FeedWidget extends StatefulWidget {
   final Post? pinnedPost;
   final void Function(Post post) onPostTap;
@@ -39,6 +33,9 @@ class FeedWidgetState extends State<FeedWidget> {
   final List<Post> _posts = [];
   bool _useHotRanking = false;
   final Set<String> _likeInFlight = {};
+  Post? _internalPinnedPost;
+
+  Post? get _effectivePinnedPost => widget.pinnedPost ?? _internalPinnedPost;
 
   @override
   void initState() {
@@ -54,7 +51,7 @@ class FeedWidgetState extends State<FeedWidget> {
     super.dispose();
   }
 
-  /// 父组件调用：重新加载发现流（回到顶部并清空重拉第一页）。
+  /// 父组件调用：清空并重新加载发现流。
   Future<void> reloadFeed() async {
     if (_isLoading) return;
     if (_scrollController.hasClients) {
@@ -62,45 +59,34 @@ class FeedWidgetState extends State<FeedWidget> {
           duration: const Duration(milliseconds: 250), curve: Curves.easeOut);
     }
     setState(() {
+      _internalPinnedPost = null;
       _posts.clear();
       _hasMore = true;
     });
     await _loadInitialPosts();
   }
 
-  /// 父组件调用：刷新第一页（用于发布后获取最新内容，不清空现有列表）。
+  /// 父组件调用：刷新第一页，不清空现有列表。
   Future<void> refreshFirstPage() async {
     try {
       final resp = await ApiService.getRecommendedPosts(page: 1, pageSize: 6);
-      final status = resp['statusCode'] as int? ?? 500;
-      final body = resp['body'] as Map<String, dynamic>?;
-      if (status < 200 || status >= 300 || body == null) return;
-      final postsData = (body['posts'] as List<dynamic>?) ?? <dynamic>[];
+      final body = _okBody(resp);
+      if (body == null) return;
+      final newPosts = _parsePosts(body['posts']);
       final total = body['total'] as int? ?? 0;
-      final newPosts = postsData
-          .map((p) => Post.fromJson(p as Map<String, dynamic>))
-          .toList();
       setState(() {
         for (var np in newPosts) {
           if (!_posts.any((p) => p.id == np.id)) {
-            if (_useHotRanking) {
-              _posts.add(np);
-            } else {
-              _posts.insert(0, np);
-            }
+            _useHotRanking ? _posts.add(np) : _posts.insert(0, np);
           }
         }
         if (_useHotRanking) {
-          _posts
-            ..clear()
-            ..addAll(_sortedByHeat([..._posts]));
+          _posts..clear()..addAll(_sortedByHeat([..._posts]));
         }
         _hasMore = _posts.length < total;
       });
     } catch (_) {}
   }
-
-  // ── 滚动监听 ──
 
   void _scrollListener() {
     if (_scrollController.offset >=
@@ -116,21 +102,18 @@ class FeedWidgetState extends State<FeedWidget> {
     setState(() => _isLoading = true);
     try {
       final resp = await ApiService.getRecommendedPosts(page: 1, pageSize: 6);
-      final status = resp['statusCode'] as int? ?? 500;
-      final body = resp['body'] as Map<String, dynamic>?;
-      if (status >= 200 && status < 300 && body != null) {
-        final postsData = (body['posts'] as List<dynamic>?) ?? <dynamic>[];
+      final body = _okBody(resp);
+      if (body != null) {
+        final newPosts = _parsePosts(body['posts']);
         final total = body['total'] as int? ?? 0;
-        final newPosts = postsData
-            .map((p) => Post.fromJson(p as Map<String, dynamic>))
-            .toList();
-        final bool useHot = _shouldUseHotRankingOnChunk(newPosts);
-        final ordered = useHot ? _sortedByHeat(newPosts) : newPosts;
+        final useHot = _shouldUseHotRankingOnChunk(newPosts);
+        final List<Post> ordered =
+            useHot ? _sortedByHeat(newPosts) : newPosts;
+        final pinned = _consumeLastCreatedPostForPin(ordered);
         setState(() {
           _useHotRanking = useHot;
-          _posts
-            ..clear()
-            ..addAll(ordered);
+          if (pinned != null) _internalPinnedPost = pinned;
+          _posts..clear()..addAll(ordered);
           _hasMore = _posts.length < total;
           _isLoading = false;
         });
@@ -149,22 +132,16 @@ class FeedWidgetState extends State<FeedWidget> {
       final currentPage = (_posts.length ~/ 6) + 1;
       final resp =
           await ApiService.getRecommendedPosts(page: currentPage, pageSize: 6);
-      final status = resp['statusCode'] as int? ?? 500;
-      final body = resp['body'] as Map<String, dynamic>?;
-      if (status >= 200 && status < 300 && body != null) {
-        final postsData = (body['posts'] as List<dynamic>?) ?? <dynamic>[];
+      final body = _okBody(resp);
+      if (body != null) {
+        final newPosts = _parsePosts(body['posts']);
         final total = body['total'] as int? ?? 0;
-        final newPosts = postsData
-            .map((p) => Post.fromJson(p as Map<String, dynamic>))
-            .toList();
-        final bool useHot = _shouldUseHotRankingOnChunk(newPosts);
+        final useHot = _shouldUseHotRankingOnChunk(newPosts);
         final combined = [..._posts, ...newPosts];
         final ordered = useHot ? _sortedByHeat(combined) : combined;
         setState(() {
           _useHotRanking = useHot;
-          _posts
-            ..clear()
-            ..addAll(ordered);
+          _posts..clear()..addAll(ordered);
           _hasMore = _posts.length < total;
           _isLoading = false;
         });
@@ -174,6 +151,19 @@ class FeedWidgetState extends State<FeedWidget> {
     } catch (_) {
       setState(() => _isLoading = false);
     }
+  }
+
+  /// 成功时返回 body，否则返回 null。
+  Map<String, dynamic>? _okBody(Map<String, dynamic> resp) {
+    final status = resp['statusCode'] as int? ?? 500;
+    final body = resp['body'] as Map<String, dynamic>?;
+    return (status >= 200 && status < 300) ? body : null;
+  }
+
+  List<Post> _parsePosts(dynamic postsData) {
+    return ((postsData as List<dynamic>?) ?? <dynamic>[])
+        .map((p) => Post.fromJson(p as Map<String, dynamic>))
+        .toList();
   }
 
   // ── 热度排序 ──
@@ -189,67 +179,66 @@ class FeedWidgetState extends State<FeedWidget> {
 
   bool _shouldUseHotRankingOnChunk(List<Post> chunk) {
     if (chunk.isEmpty) return _useHotRanking;
-    final weakRecommendation = chunk.every((p) => p.recommendationScore < 2);
-    return _useHotRanking || weakRecommendation;
+    return _useHotRanking || chunk.every((p) => p.recommendationScore < 2);
+  }
+
+  Post? _consumeLastCreatedPostForPin(List<Post> currentList) {
+    try {
+      final raw = LocalStorage.instance.read('lastCreatedPost');
+      if (raw == null || raw.trim().isEmpty) return null;
+      final decoded = jsonDecode(raw) as Map<String, dynamic>;
+      final pinned = Post.fromJson(decoded);
+      currentList.removeWhere((p) => p.id == pinned.id);
+      LocalStorage.instance.write('lastCreatedPost', '');
+      return pinned;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _evaluateUserSignals() async {
     try {
       final token = LocalStorage.instance.read('accessToken');
       if (token == null || token.isEmpty) {
-        final cached = LocalStorage.instance.read('currentUser');
-        if (cached != null) {
-          final decoded = jsonDecode(cached) as Map<String, dynamic>;
-          final profile = UserProfile.fromJson(decoded);
-          final missingDirections = profile.researchDirections.isEmpty;
-          setState(() {
-            _useHotRanking = missingDirections || _useHotRanking;
-          });
-          if (_useHotRanking && _posts.isNotEmpty) {
-            _sortDiscoverByHeat();
-          }
-        }
+        _tryLocalUserSignals();
         return;
       }
       final resp = await ApiService.getCurrentUserProfile();
       if (resp['statusCode'] == 200) {
         final body = resp['body'] as Map<String, dynamic>?;
         if (body != null) {
-          final profile = UserProfile.fromJson(body);
-          final missingDirections = profile.researchDirections.isEmpty;
-          setState(() {
-            _useHotRanking = missingDirections || _useHotRanking;
-          });
-          if (_useHotRanking && _posts.isNotEmpty) {
-            _sortDiscoverByHeat();
-          }
+          _applyUserSignals(UserProfile.fromJson(body));
           return;
         }
       }
     } catch (_) {}
-    // fallback: 从本地缓存读取
+    _tryLocalUserSignals();
+  }
+
+  void _tryLocalUserSignals() {
     try {
       final cached = LocalStorage.instance.read('currentUser');
       if (cached != null) {
         final decoded = jsonDecode(cached) as Map<String, dynamic>;
-        final profile = UserProfile.fromJson(decoded);
-        final missingDirections = profile.researchDirections.isEmpty;
-        setState(() {
-          _useHotRanking = missingDirections || _useHotRanking;
-        });
-        if (_useHotRanking && _posts.isNotEmpty) {
-          _sortDiscoverByHeat();
-        }
+        _applyUserSignals(UserProfile.fromJson(decoded));
       }
     } catch (_) {}
+  }
+
+  void _applyUserSignals(UserProfile profile) {
+    final missingDirections = profile.researchDirections.isEmpty;
+    setState(() {
+      _useHotRanking = missingDirections || _useHotRanking;
+    });
+    if (_useHotRanking && _posts.isNotEmpty) {
+      _sortDiscoverByHeat();
+    }
   }
 
   void _sortDiscoverByHeat() {
     final sorted = _sortedByHeat(_posts);
     setState(() {
-      _posts
-        ..clear()
-        ..addAll(sorted);
+      _posts..clear()..addAll(sorted);
     });
   }
 
@@ -287,14 +276,13 @@ class FeedWidgetState extends State<FeedWidget> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading && _posts.isEmpty) {
-      return _buildInitialLoading();
-    }
+    if (_isLoading && _posts.isEmpty) return _buildInitialLoading();
     return _buildWaterfallGrid();
   }
 
   Widget _buildWaterfallGrid() {
-    final hasPinned = widget.pinnedPost != null;
+    final pinned = _effectivePinnedPost;
+    final hasPinned = pinned != null;
     final baseCount = _posts.length + (hasPinned ? 1 : 0);
     final totalCount = baseCount + (_isLoading ? 1 : 0);
     return MasonryGridView.count(
@@ -307,7 +295,7 @@ class FeedWidgetState extends State<FeedWidget> {
       itemBuilder: (context, index) {
         if (index == baseCount) return _buildLoadMoreIndicator();
         final Post target = hasPinned
-            ? (index == 0 ? widget.pinnedPost! : _posts[index - 1])
+            ? (index == 0 ? pinned : _posts[index - 1])
             : _posts[index];
         return PostCard(
           post: target,

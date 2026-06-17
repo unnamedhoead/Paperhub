@@ -981,7 +981,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     _selectedTab = 1;
                     _pinnedSelfPost = result;
                   });
-                  _feedKey.currentState?.refreshFirstPage();
                   return;
                 }
                 // 发布结果未知/失败时刷新发现流
