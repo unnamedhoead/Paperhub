@@ -1,56 +1,41 @@
 package com.example.paperhub.report;
 
+import com.example.paperhub.admin.ReportStatus;
 import com.example.paperhub.auth.User;
-import com.example.paperhub.auth.UserRole;
 import com.example.paperhub.post.Post;
-import com.example.paperhub.report.dto.ReportPostDtos;
+import com.example.paperhub.report.dto.*;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
 /**
- * 举报帖子控制器 - 管理员端接口
+ * Admin-facing post report and moderation controller.
  */
 @RestController
 @RequestMapping("/api/admin")
 @CrossOrigin(origins = "*")
 public class AdminReportPostController {
 
-    private final ReportPostService reportPostService;
+    private final ReportPostAdminService reportPostAdminService;
 
-    public AdminReportPostController(ReportPostService reportPostService) {
-        this.reportPostService = reportPostService;
+    public AdminReportPostController(ReportPostAdminService reportPostAdminService) {
+        this.reportPostAdminService = reportPostAdminService;
     }
 
-    /**
-     * 检查是否为管理员
-     */
-    private boolean isAdmin(User user) {
-        return user != null && (user.getRole() == UserRole.ADMIN || user.getRole() == UserRole.SUPER_ADMIN);
-    }
-
-    /**
-     * 查看所有举报列表
-     * GET /api/admin/report/posts
-     */
     @GetMapping("/report/posts")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")
     public ResponseEntity<?> getAllReports(
             @AuthenticationPrincipal User currentUser,
             @RequestParam(required = false) String status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int pageSize) {
-
-        if (!isAdmin(currentUser)) {
-            return ResponseEntity.status(403).body(
-                    new ReportPostDtos.OperationResponse(false, "仅管理员可访问", null)
-            );
-        }
 
         try {
             Pageable pageable = PageRequest.of(page, pageSize);
@@ -58,13 +43,13 @@ public class AdminReportPostController {
 
             if (status != null && !status.isEmpty()) {
                 ReportStatus reportStatus = ReportStatus.valueOf(status.toUpperCase());
-                reportPage = reportPostService.getReportsByStatus(reportStatus, pageable);
+                reportPage = reportPostAdminService.getReportsByStatus(reportStatus, pageable);
             } else {
-                reportPage = reportPostService.getAllReports(pageable);
+                reportPage = reportPostAdminService.getAllReports(pageable);
             }
 
             var list = reportPage.getContent().stream()
-                    .map(r -> new ReportPostDtos.ReportListItemResponse(
+                    .map(r -> new ReportListItemResponse(
                             r.getId(),
                             r.getReporter().getId(),
                             r.getReporter().getName(),
@@ -84,7 +69,7 @@ public class AdminReportPostController {
                     ))
                     .toList();
 
-            ReportPostDtos.ReportListResponse response = new ReportPostDtos.ReportListResponse(
+            ReportListResponse response = new ReportListResponse(
                     list,
                     reportPage.getTotalElements(),
                     page,
@@ -94,32 +79,23 @@ public class AdminReportPostController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(
-                    new ReportPostDtos.OperationResponse(false, e.getMessage(), null)
+                    new OperationResponse(false, e.getMessage(), null)
             );
         }
     }
 
-    /**
-     * 管理员处理举报：下架帖子
-     * POST /api/admin/report/{id}/remove
-     */
     @PostMapping("/report/{id}/remove")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")
     public ResponseEntity<?> removePost(
             @PathVariable Long id,
-            @Valid @RequestBody ReportPostDtos.RemovePostRequest request,
+            @Valid @RequestBody RemovePostRequest request,
             @AuthenticationPrincipal User currentUser) {
 
-        if (!isAdmin(currentUser)) {
-            return ResponseEntity.status(403).body(
-                    new ReportPostDtos.OperationResponse(false, "仅管理员可操作", null)
-            );
-        }
-
         try {
-            ReportPost report = reportPostService.removePost(id, request.reason(), currentUser);
+            ReportPost report = reportPostAdminService.removePost(id, request.reason(), currentUser);
 
             return ResponseEntity.ok(
-                    new ReportPostDtos.OperationResponse(
+                    new OperationResponse(
                             true,
                             "帖子已下架",
                             Map.of(
@@ -132,36 +108,27 @@ public class AdminReportPostController {
             );
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(
-                    new ReportPostDtos.OperationResponse(false, e.getMessage(), null)
+                    new OperationResponse(false, e.getMessage(), null)
             );
         }
     }
 
-    /**
-     * 管理员忽略举报
-     * POST /api/admin/report/{id}/ignore
-     */
     @PostMapping("/report/{id}/ignore")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")
     public ResponseEntity<?> ignoreReport(
             @PathVariable Long id,
-            @Valid @RequestBody ReportPostDtos.IgnoreReportRequest request,
+            @Valid @RequestBody IgnoreReportRequest request,
             @AuthenticationPrincipal User currentUser) {
 
-        if (!isAdmin(currentUser)) {
-            return ResponseEntity.status(403).body(
-                    new ReportPostDtos.OperationResponse(false, "仅管理员可操作", null)
-            );
-        }
-
         try {
-            ReportPost report = reportPostService.ignoreReport(
+            ReportPost report = reportPostAdminService.ignoreReport(
                     id,
                     request.reason() != null ? request.reason() : "未发现违规",
                     currentUser
             );
 
             return ResponseEntity.ok(
-                    new ReportPostDtos.OperationResponse(
+                    new OperationResponse(
                             true,
                             "已忽略该举报",
                             Map.of(
@@ -173,31 +140,22 @@ public class AdminReportPostController {
             );
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(
-                    new ReportPostDtos.OperationResponse(false, e.getMessage(), null)
+                    new OperationResponse(false, e.getMessage(), null)
             );
         }
     }
 
-    /**
-     * 管理员审核通过
-     * POST /api/admin/post/{id}/approve
-     */
     @PostMapping("/post/{id}/approve")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")
     public ResponseEntity<?> approvePost(
             @PathVariable Long id,
             @AuthenticationPrincipal User currentUser) {
 
-        if (!isAdmin(currentUser)) {
-            return ResponseEntity.status(403).body(
-                    new ReportPostDtos.OperationResponse(false, "仅管理员可操作", null)
-            );
-        }
-
         try {
-            Post post = reportPostService.approvePost(id, currentUser);
+            Post post = reportPostAdminService.approvePost(id, currentUser);
 
             return ResponseEntity.ok(
-                    new ReportPostDtos.OperationResponse(
+                    new OperationResponse(
                             true,
                             "审核通过，帖子已恢复正常",
                             Map.of(
@@ -208,32 +166,23 @@ public class AdminReportPostController {
             );
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(
-                    new ReportPostDtos.OperationResponse(false, e.getMessage(), null)
+                    new OperationResponse(false, e.getMessage(), null)
             );
         }
     }
 
-    /**
-     * 管理员拒绝审核
-     * POST /api/admin/post/{id}/reject
-     */
     @PostMapping("/post/{id}/reject")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")
     public ResponseEntity<?> rejectPost(
             @PathVariable Long id,
-            @Valid @RequestBody ReportPostDtos.RejectPostRequest request,
+            @Valid @RequestBody RejectPostRequest request,
             @AuthenticationPrincipal User currentUser) {
 
-        if (!isAdmin(currentUser)) {
-            return ResponseEntity.status(403).body(
-                    new ReportPostDtos.OperationResponse(false, "仅管理员可操作", null)
-            );
-        }
-
         try {
-            Post post = reportPostService.rejectPost(id, request.reason(), currentUser);
+            Post post = reportPostAdminService.rejectPost(id, request.reason(), currentUser);
 
             return ResponseEntity.ok(
-                    new ReportPostDtos.OperationResponse(
+                    new OperationResponse(
                             true,
                             "审核未通过，帖子已重新下架",
                             Map.of(
@@ -245,33 +194,24 @@ public class AdminReportPostController {
             );
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(
-                    new ReportPostDtos.OperationResponse(false, e.getMessage(), null)
+                    new OperationResponse(false, e.getMessage(), null)
             );
         }
     }
 
-    /**
-     * 查询待审核的帖子列表
-     * GET /api/admin/post/audit
-     */
     @GetMapping("/post/audit")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")
     public ResponseEntity<?> getAuditPosts(
             @AuthenticationPrincipal User currentUser,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int pageSize) {
 
-        if (!isAdmin(currentUser)) {
-            return ResponseEntity.status(403).body(
-                    new ReportPostDtos.OperationResponse(false, "仅管理员可访问", null)
-            );
-        }
-
         try {
             Pageable pageable = PageRequest.of(page, pageSize);
-            Page<Post> postPage = reportPostService.getAuditPosts(pageable);
+            Page<Post> postPage = reportPostAdminService.getAuditPosts(pageable);
 
             var list = postPage.getContent().stream()
-                    .map(p -> new ReportPostDtos.PostListItemResponse(
+                    .map(p -> new PostListItemResponse(
                             p.getId(),
                             p.getTitle(),
                             p.getAuthor().getId(),
@@ -284,7 +224,7 @@ public class AdminReportPostController {
                     ))
                     .toList();
 
-            ReportPostDtos.PostListResponse response = new ReportPostDtos.PostListResponse(
+            PostListResponse response = new PostListResponse(
                     list,
                     postPage.getTotalElements(),
                     page,
@@ -294,29 +234,20 @@ public class AdminReportPostController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(
-                    new ReportPostDtos.OperationResponse(false, e.getMessage(), null)
+                    new OperationResponse(false, e.getMessage(), null)
             );
         }
     }
 
-    /**
-     * 统计待处理举报数量
-     * GET /api/admin/report/count
-     */
     @GetMapping("/report/count")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPER_ADMIN')")
     public ResponseEntity<?> countPendingReports(@AuthenticationPrincipal User currentUser) {
-        if (!isAdmin(currentUser)) {
-            return ResponseEntity.status(403).body(
-                    new ReportPostDtos.OperationResponse(false, "仅管理员可访问", null)
-            );
-        }
-
         try {
-            long count = reportPostService.countPendingReports();
+            long count = reportPostAdminService.countPendingReports();
             return ResponseEntity.ok(Map.of("count", count));
         } catch (Exception e) {
             return ResponseEntity.badRequest().body(
-                    new ReportPostDtos.OperationResponse(false, e.getMessage(), null)
+                    new OperationResponse(false, e.getMessage(), null)
             );
         }
     }
