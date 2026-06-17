@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:email_validator/email_validator.dart';
-import '../../services/api_service.dart';
+import '../../services/api/auth_api.dart';
 import '../../widgets/animated_title_background.dart';
 import '../../constants/app_colors.dart';
 import '../../utils/font_utils.dart';
@@ -20,7 +20,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   Future<void> _requestReset() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => loading = true);
-    final res = await ApiService.requestPasswordReset(email.trim());
+    final res = await AuthApi.requestPasswordReset(email.trim());
     setState(() => loading = false);
     _showSnack(res['body']['message'] ?? '操作完成');
     if (res['statusCode'] == 200) {
