@@ -21,9 +21,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/search_model.dart';
 import '../services/search_history_service.dart';
 import '../services/api_service.dart';
+import 'search/hot_search_section.dart';
 import 'search/search_bar.dart';
 import 'search/search_history_section.dart';
-import 'search/search_placeholders.dart';
 import 'search/search_type_selector.dart';
 import 'search_results_screen.dart';
 
@@ -341,147 +341,19 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
 
                   // 热搜榜区域
-                  _buildHotSearchSection(),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 热搜榜区域（Sliver）：
-  /// - 从后端API获取实时热搜数据，失败时显示错误信息并提供重试
-  /// - 每项展示：排名、标题、标签徽标（新/热）、热度文案
-  Widget _buildHotSearchSection() {
-    final scheme = Theme.of(context).colorScheme;
-    return SliverToBoxAdapter(
-      child: Container(
-        margin: const EdgeInsets.only(top: 16, bottom: 16),
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 标题栏
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    '热搜榜',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: scheme.onSurface,
-                    ),
+                  HotSearchSection(
+                    hotSearches: _hotSearches,
+                    isLoading: _isLoadingHotSearches,
+                    error: _hotSearchesError,
+                    onRefresh: _loadHotSearches,
+                    onItemTap: _onHotSearchTap,
                   ),
-                  // 刷新按钮（非加载状态时显示）
-                  if (!_isLoadingHotSearches && _hotSearchesError == null)
-                    IconButton(
-                      icon: Icon(Icons.refresh, size: 20, color: scheme.onSurface),
-                      onPressed: _loadHotSearches,
-                      tooltip: '刷新热搜榜',
-                    ),
                 ],
               ),
             ),
-
-            // 加载状态
-            if (_isLoadingHotSearches)
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            // 错误状态
-            else if (_hotSearchesError != null)
-              SearchErrorState(
-                message: _hotSearchesError!,
-                onRetry: _loadHotSearches,
-              )
-            // 空状态（无错误但数据为空）
-            else if (_hotSearches.isEmpty)
-              const SearchEmptyState(message: '暂无热搜数据')
-            // 热搜列表
-            else
-              ..._hotSearches
-                  .map((item) => _buildHotSearchItem(item))
-                  .toList(),
           ],
         ),
       ),
-    );
-  }
-
-  /// 单条热搜项
-  /// - 前三名使用红色强化排名
-  /// - 若存在 tag：渲染带边框的小徽标（新/热）
-  /// - 右侧展示 `formattedHeat`（热度格式化文案）
-  Widget _buildHotSearchItem(HotSearchItem item) {
-    final scheme = Theme.of(context).colorScheme;
-    Color rankColor = scheme.onSurfaceVariant;
-    if (item.rank <= 3) {
-      rankColor = const Color(0xFFFF2D55); // 前3名用红色
-    }
-
-    return ListTile(
-      leading: Container(
-        width: 24,
-        alignment: Alignment.center,
-        child: Text(
-          item.rank.toString(),
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-            color: rankColor,
-          ),
-        ),
-      ),
-      title: Row(
-        children: [
-          Expanded(
-            child: Text(
-              item.title,
-              style: TextStyle(
-                fontSize: 14,
-                color: scheme.onSurface,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          if (item.tag != null) ...[
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-              decoration: BoxDecoration(
-                color: item.tag == '热' ? Colors.red[50] : Colors.orange[50],
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(
-                  color: item.tag == '热' ? Colors.red : Colors.orange,
-                  width: 0.5,
-                ),
-              ),
-              child: Text(
-                item.tag!,
-                style: TextStyle(
-                  fontSize: 10,
-                  color: item.tag == '热' ? Colors.red : Colors.orange,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-      trailing: Text(
-        item.formattedHeat,
-        style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-      ),
-      onTap: () => _onHotSearchTap(item),
     );
   }
 
