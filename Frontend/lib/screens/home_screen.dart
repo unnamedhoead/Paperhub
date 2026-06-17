@@ -31,6 +31,8 @@ import '../services/local_storage.dart';
 import '../services/browse_history_service.dart';
 import '../constants/discipline_constants.dart';
 import 'home/home_tab_bar.dart';
+import 'home/following_feed.dart';
+import 'home/home_loading_indicator.dart';
 
 /// 首页入口组件（Stateful）：承载发现流与分区切换
 class HomeScreen extends StatefulWidget {
@@ -563,7 +565,15 @@ class _HomeScreenState extends State<HomeScreen> {
             // 内容区域
             Expanded(
               child: _selectedTab == 0
-                  ? _buildFollowingTabContent()
+                  ? FollowingFeed(
+                      posts: _followingPosts,
+                      isLoading: _followingLoading,
+                      hasMore: _followingHasMore,
+                      scrollController: _followingScrollController,
+                      onPostTap: _onPostTap,
+                      onAuthorTap: _openUserProfile,
+                      onLikeTap: _handlePostLike,
+                    )
                   : _selectedTab == 1
                       ? FeedWidget(
                           key: _feedKey,
@@ -629,47 +639,6 @@ class _HomeScreenState extends State<HomeScreen> {
           child: _buildZoneWaterfallGrid(),
         ),
       ],
-    );
-  }
-
-  /// 关注页内容：如果没有数据显示占位，否则使用瀑布流布局
-  Widget _buildFollowingTabContent() {
-    if (_followingLoading && _followingPosts.isEmpty) {
-      return _buildInitialLoading();
-    }
-
-    if (_followingPosts.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32.0),
-          child: Text(
-            '还没有关注的人的动态，去发现页多关注一些优质作者吧～',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey[600]),
-          ),
-        ),
-      );
-    }
-
-    return MasonryGridView.count(
-      controller: _followingScrollController,
-      crossAxisCount: 2,
-      crossAxisSpacing: 3,
-      mainAxisSpacing: 3,
-      padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
-      itemCount: _followingPosts.length + (_followingLoading ? 1 : 0),
-      itemBuilder: (context, index) {
-        if (index == _followingPosts.length) {
-          return _buildLoadMoreIndicator();
-        }
-        final post = _followingPosts[index];
-        return PostCard(
-          post: post,
-          onTap: () => _onPostTap(post),
-          onAuthorTap: () => _openUserProfile(post.author.id),
-          onLikeTap: _handlePostLike,
-        );
-      },
     );
   }
 
@@ -770,43 +739,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// 底部加载更多指示器（关注流使用）
-  Widget _buildLoadMoreIndicator() {
-    if (_followingLoading) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(16.0),
-          child: SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-        ),
-      );
-    } else if (!_followingHasMore) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.all(16.0),
-          child: Text('没有更多内容了', style: TextStyle(color: Colors.grey)),
-        ),
-      );
-    } else {
-      return const SizedBox();
-    }
-  }
-
-  /// 首屏加载过程中的占位视图（关注流与分区流共用）
+  /// 首屏加载过程中的占位视图（分区流使用，委托共享组件）
   Widget _buildInitialLoading() {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 16),
-          Text('加载中...', style: TextStyle(color: Colors.grey)),
-        ],
-      ),
-    );
+    return const HomeLoadingIndicator();
   }
 
   /// 底部自定义导航：
