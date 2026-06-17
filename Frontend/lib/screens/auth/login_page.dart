@@ -3,12 +3,12 @@ import 'dart:convert';
 import 'package:email_validator/email_validator.dart';
 import 'package:flutter/material.dart';
 
-import '../services/api_service.dart';
-import '../services/local_storage.dart';
-import '../services/notification_websocket_service.dart';
-import '../widgets/animated_title_background.dart';
-import '../constants/app_colors.dart';
-import '../utils/font_utils.dart';
+import '../../services/api_service.dart';
+import '../../services/local_storage.dart';
+import '../../services/notification_websocket_service.dart';
+import '../../widgets/animated_title_background.dart';
+import '../../constants/app_colors.dart';
+import '../../utils/font_utils.dart';
 
 class LoginPage extends StatefulWidget {
   @override

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
-import 'pages/forgot_password_page.dart';
-import 'pages/login_page.dart';
-import 'pages/register_page.dart';
-import 'pages/reset_password_page.dart';
-import 'pages/verify_email_page.dart';
+import 'screens/auth/forgot_password_page.dart';
+import 'screens/auth/login_page.dart';
+import 'screens/auth/register_page.dart';
+import 'screens/auth/reset_password_page.dart';
+import 'screens/auth/verify_email_page.dart';
 import 'screens/chat_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/profile_screen.dart';

@@ -8,7 +8,7 @@ import '../models/post_model.dart';
 import '../models/user_profile.dart';
 import 'admin_mode_screen.dart';
 import '../models/user_summary.dart';
-import '../pages/login_page.dart';
+import 'auth/login_page.dart';
 import '../pages/note_editor_page.dart';
 import '../services/api_service.dart';
 import '../services/local_storage.dart';

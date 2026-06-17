@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:email_validator/email_validator.dart';
-import '../services/api_service.dart';
-import '../widgets/animated_title_background.dart';
-import '../constants/app_colors.dart';
-import '../utils/font_utils.dart';
+import '../../services/api_service.dart';
+import '../../widgets/animated_title_background.dart';
+import '../../constants/app_colors.dart';
+import '../../utils/font_utils.dart';
 
 class RegisterPage extends StatefulWidget {
   @override

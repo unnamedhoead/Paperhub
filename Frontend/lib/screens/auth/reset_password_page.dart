@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import '../services/api_service.dart';
-import '../widgets/animated_title_background.dart';
-import '../constants/app_colors.dart';
-import '../utils/font_utils.dart';
+import '../../services/api_service.dart';
+import '../../widgets/animated_title_background.dart';
+import '../../constants/app_colors.dart';
+import '../../utils/font_utils.dart';
 
 class ResetPasswordPage extends StatefulWidget {
   @override
