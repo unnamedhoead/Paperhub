@@ -13,7 +13,7 @@ import '../../services/local_storage.dart';
 import '../../widgets/bottom_navigation.dart';
 import '../../widgets/post_card.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
-import '../admin_mode_screen.dart';
+import '../admin/admin_screen.dart';
 import '../auth/login_page.dart';
 import '../chat_screen.dart';
 import '../follow_list_screen.dart';
@@ -468,7 +468,7 @@ class _ProfilePageState extends State<ProfilePage>
     final hasAdmin = _profile != null && _profile!.role.isAdmin;
     return Drawer(child: ListView(padding: EdgeInsets.zero, children: [
       const DrawerHeader(child: Text('菜单', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold))),
-      if (hasAdmin) ListTile(leading: const Icon(Icons.admin_panel_settings), title: const Text('管理员模式'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => AdminModeScreen(role: _profile!.role.name))); }),
+      if (hasAdmin) ListTile(leading: const Icon(Icons.admin_panel_settings), title: const Text('管理员模式'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => AdminScreen(role: _profile!.role.name))); }),
       ListTile(leading: const Icon(Icons.settings), title: const Text('隐私设置'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacySettingsScreen())); }),
       ListTile(leading: const Icon(Icons.history), title: const Text('浏览历史'), onTap: () async { Navigator.pop(context); await _openBrowseHistory(); }),
       const Divider(),
