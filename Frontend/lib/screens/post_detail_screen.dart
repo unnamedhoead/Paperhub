@@ -193,7 +193,6 @@ class _PostDetailScreenState extends State<PostDetailScreen>
   int _currentImageIndex = 0;
   bool _isHoveringImage = false;
   late final PageController _imagePageController;
-  // ========= 外部链接跳转方法=========
 
 
   @override
@@ -1679,31 +1678,6 @@ class _PostDetailScreenState extends State<PostDetailScreen>
       ],
     );
   }
-
-
-
-
-  /// 进入编辑页面
-
-
-
-
-
-  /// 构建帖子不可见提示页面（用于 DRAFT、AUDIT、REMOVED 状态）
-
-
-
-
-  // 构建 arXiv 元数据信息卡片
-
-
-
-
-
-
-  /// 处理标签点击事件
-
-  /// 帖子正文上方的分区标签区域
 
 
 
