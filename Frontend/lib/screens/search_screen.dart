@@ -21,6 +21,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/search_model.dart';
 import '../services/search_history_service.dart';
 import '../services/api_service.dart';
+import 'search/search_placeholders.dart';
 import 'search_results_screen.dart';
 
 /// 搜索页面（Stateful）
@@ -500,7 +501,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 child: Center(child: CircularProgressIndicator()),
               )
             else if (_searchHistory.isEmpty)
-              _buildEmptyState('暂无搜索历史')
+              const SearchEmptyState(message: '暂无搜索历史')
             else
               Column(
                 children: [
@@ -609,10 +610,13 @@ class _SearchScreenState extends State<SearchScreen> {
               )
             // 错误状态
             else if (_hotSearchesError != null)
-              _buildErrorState(_hotSearchesError!)
+              SearchErrorState(
+                message: _hotSearchesError!,
+                onRetry: _loadHotSearches,
+              )
             // 空状态（无错误但数据为空）
             else if (_hotSearches.isEmpty)
-              _buildEmptyState('暂无热搜数据')
+              const SearchEmptyState(message: '暂无热搜数据')
             // 热搜列表
             else
               ..._hotSearches
@@ -689,54 +693,6 @@ class _SearchScreenState extends State<SearchScreen> {
         style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
       ),
       onTap: () => _onHotSearchTap(item),
-    );
-  }
-
-  /// 空状态占位
-  Widget _buildEmptyState(String message) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        children: [
-          Icon(Icons.search_off, size: 48, color: scheme.onSurfaceVariant),
-          const SizedBox(height: 16),
-          Text(
-            message,
-            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 14),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 错误状态占位
-  Widget _buildErrorState(String errorMessage) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        children: [
-          Icon(Icons.error_outline, size: 48, color: Colors.orange[400]),
-          const SizedBox(height: 16),
-          Text(
-            errorMessage,
-            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 14),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: _loadHotSearches,
-            icon: const Icon(Icons.refresh, size: 16),
-            label: const Text('重新加载'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: scheme.primary,
-              foregroundColor: scheme.onPrimary,
-              elevation: 0,
-            ),
-          ),
-        ],
-      ),
     );
   }
 
