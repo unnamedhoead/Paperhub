@@ -21,6 +21,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/search_model.dart';
 import '../services/search_history_service.dart';
 import '../services/api_service.dart';
+import 'search/search_bar.dart';
 import 'search/search_placeholders.dart';
 import 'search_results_screen.dart';
 
@@ -288,14 +289,21 @@ class _SearchScreenState extends State<SearchScreen> {
   ///   2) 历史记录区（加载中/空/列表）
   ///   3) 热搜榜区（列表）
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SafeArea(
         child: Column(
           children: [
             // 顶部搜索栏
-            _buildSearchHeader(scheme),
+            SearchBarHeader(
+              controller: _searchController,
+              focusNode: _searchFocusNode,
+              hintText: _searchHints[_selectedSearchType],
+              onSubmitted: _onSearchSubmitted,
+              onChanged: (_) => setState(() {}),
+              onClear: () => setState(() {}),
+              onBack: () => Navigator.pop(context),
+            ),
 
             // 内容区域
             Expanded(
@@ -314,78 +322,6 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  /// 顶部搜索栏：
-  /// - 返回按钮：`Navigator.pop`
-  /// - 输入框：根据 `_selectedSearchType` 切换 hint；右侧清空/搜索图标动态切换
-  /// - “搜索”按钮：仅在输入非空时显示
-  Widget _buildSearchHeader(ColorScheme scheme) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 3,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          // 返回按钮
-          IconButton(
-            icon: Icon(Icons.arrow_back, color: scheme.onSurface),
-            onPressed: () => Navigator.pop(context),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-          ),
-          const SizedBox(width: 8),
-
-          // 搜索输入框
-          Expanded(
-            child: Container(
-              height: 40,
-              decoration: BoxDecoration(
-                color: scheme.surfaceVariant,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: TextField(
-                controller: _searchController,
-                focusNode: _searchFocusNode,
-                decoration: InputDecoration(
-                  hintText: _searchHints[_selectedSearchType],
-                  hintStyle: TextStyle(color: scheme.onSurface.withOpacity(0.6)),
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                  suffixIcon: _searchController.text.isNotEmpty
-                      ? IconButton(
-                          icon: Icon(Icons.clear, size: 20, color: scheme.onSurface),
-                          onPressed: () {
-                            _searchController.clear();
-                            setState(() {});
-                          },
-                        )
-                      : Icon(Icons.search, color: scheme.onSurface.withOpacity(0.6), size: 20),
-                ),
-                style: TextStyle(color: scheme.onSurface),
-                onChanged: (value) => setState(() {}),
-                onSubmitted: _onSearchSubmitted,
-              ),
-            ),
-          ),
-
-          // 搜索按钮
-          if (_searchController.text.isNotEmpty)
-            TextButton(
-              onPressed: () => _onSearchSubmitted(_searchController.text),
-              child: Text('搜索', style: TextStyle(color: scheme.primary)),
-            ),
-        ],
       ),
     );
   }
