@@ -23,6 +23,7 @@ import '../services/search_history_service.dart';
 import '../services/api_service.dart';
 import 'search/search_bar.dart';
 import 'search/search_placeholders.dart';
+import 'search/search_type_selector.dart';
 import 'search_results_screen.dart';
 
 /// 搜索页面（Stateful）
@@ -310,7 +311,17 @@ class _SearchScreenState extends State<SearchScreen> {
               child: CustomScrollView(
                 slivers: [
                   // 搜索方式选择器
-                  _buildSearchTypeSelector(),
+                  SearchTypeSelector(
+                    options: _searchTypeOptions,
+                    selectedType: _selectedSearchType,
+                    isExpanded: _isSearchTypeExpanded,
+                    onExpansionChanged: (expanded) {
+                      setState(() {
+                        _isSearchTypeExpanded = expanded;
+                      });
+                    },
+                    onTypeChanged: _onSearchTypeChanged,
+                  ),
 
                   // 历史记录区域
                   _buildHistorySection(),
@@ -318,71 +329,6 @@ class _SearchScreenState extends State<SearchScreen> {
                   // 热搜榜区域
                   _buildHotSearchSection(),
                 ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 搜索方式选择器（Sliver）：
-  /// - 使用 `ExpansionTile` 展示三个选项（单选 Radio）
-  /// - 展开状态同步到 `_isSearchTypeExpanded`，以控制箭头图标
-  Widget _buildSearchTypeSelector() {
-    final scheme = Theme.of(context).colorScheme;
-    return SliverToBoxAdapter(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          border: Border(bottom: BorderSide(color: scheme.outline.withOpacity(0.12))),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '搜索方式',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: scheme.onSurface.withOpacity(0.7),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              decoration: BoxDecoration(
-                color: scheme.surfaceVariant,
-                border: Border.all(color: scheme.outline.withOpacity(0.3)),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: ExpansionTile(
-                title: Text(
-                  _searchTypeOptions[_selectedSearchType]!,
-                  style: TextStyle(color: scheme.onSurface),
-                ),
-                trailing: Icon(
-                  _isSearchTypeExpanded ? Icons.expand_less : Icons.expand_more,
-                  color: scheme.onSurface.withOpacity(0.7),
-                ),
-                initiallyExpanded: false,
-                onExpansionChanged: (expanded) {
-                  setState(() {
-                    _isSearchTypeExpanded = expanded;
-                  });
-                },
-                children: _searchTypeOptions.entries.map((entry) {
-                  return ListTile(
-                    title: Text(entry.value, style: TextStyle(color: scheme.onSurface)),
-                    leading: Radio<String>(
-                      value: entry.key,
-                      groupValue: _selectedSearchType,
-                      onChanged: (value) => _onSearchTypeChanged(value!),
-                      activeColor: scheme.primary,
-                    ),
-                    onTap: () => _onSearchTypeChanged(entry.key),
-                  );
-                }).toList(),
               ),
             ),
           ],
