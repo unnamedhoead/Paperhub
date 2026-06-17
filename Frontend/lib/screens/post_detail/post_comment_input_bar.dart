@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/post_model.dart';
 import '../../services/api_service.dart';
+import 'mention_user_strip.dart';
 import 'post_comment_controller.dart';
 
 /// 底部评论输入栏。
@@ -531,223 +532,15 @@ class _PostCommentInputBarState extends State<PostCommentInputBar> {
           children: [
             if (_showMentionList &&
                 (_selectedMentions.isNotEmpty || _mentionCandidates.isNotEmpty))
-              _buildMentionStrip(scheme, bg),
+              MentionUserStrip(
+                selectedMentions: _selectedMentions,
+                candidates: _mentionCandidates,
+                onSelect: _selectMentionUser,
+                onToggle: _toggleMentionUser,
+              ),
             if (currentReplyTo != null) _buildReplyBanner(scheme, currentReplyTo),
             _buildInputRow(scheme, currentReplyTo),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMentionStrip(ColorScheme scheme, Color bg) {
-    return Container(
-      height: 100,
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      decoration: BoxDecoration(
-        color: bg,
-        border: Border(
-          bottom: BorderSide(
-            color: scheme.outline.withOpacity(0.15),
-            width: 0.5,
-          ),
-        ),
-      ),
-      child: _mentionCandidates.isEmpty && _selectedMentions.isEmpty
-          ? Center(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(scheme.primary),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    '搜索用户中...',
-                    style: TextStyle(
-                      color: scheme.onSurface.withOpacity(0.8),
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
-            )
-          : ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              itemCount: _selectedMentions.length +
-                  _mentionCandidates
-                      .where(
-                        (u) => !_selectedMentions
-                            .containsKey(u.name.toLowerCase()),
-                      )
-                      .length,
-              itemBuilder: (context, index) {
-                if (index < _selectedMentions.length) {
-                  final user = _selectedMentions.values.elementAt(index);
-                  return _buildSelectedAvatar(user);
-                }
-                final unselectedCandidates = _mentionCandidates
-                    .where(
-                      (u) =>
-                          !_selectedMentions.containsKey(u.name.toLowerCase()),
-                    )
-                    .toList();
-                final user =
-                    unselectedCandidates[index - _selectedMentions.length];
-                return _buildCandidateAvatar(user);
-              },
-            ),
-    );
-  }
-
-  Widget _buildSelectedAvatar(Author user) {
-    final hasHttpAvatar = user.avatar.isNotEmpty &&
-        (user.avatar.startsWith('http://') ||
-            user.avatar.startsWith('https://'));
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => _toggleMentionUser(user),
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          width: 65,
-          margin: const EdgeInsets.only(right: 10),
-          child: Stack(
-            children: [
-              Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.blue, width: 2),
-                    ),
-                    child: CircleAvatar(
-                      radius: 24,
-                      backgroundImage:
-                          hasHttpAvatar ? NetworkImage(user.avatar) : null,
-                      backgroundColor: Colors.blue[50],
-                      child: !hasHttpAvatar
-                          ? Text(
-                              user.name.isNotEmpty
-                                  ? user.name[0].toUpperCase()
-                                  : '?',
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.blue,
-                              ),
-                            )
-                          : null,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    constraints: const BoxConstraints(maxWidth: 65),
-                    child: Text(
-                      user.name,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Colors.blue,
-                        fontWeight: FontWeight.w500,
-                        height: 1.2,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                ],
-              ),
-              Positioned(
-                top: 0,
-                right: 0,
-                child: Container(
-                  width: 20,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: Colors.blue,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2),
-                  ),
-                  child: const Icon(Icons.check, size: 12, color: Colors.white),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCandidateAvatar(Author user) {
-    final hasHttpAvatar = user.avatar.isNotEmpty &&
-        (user.avatar.startsWith('http://') ||
-            user.avatar.startsWith('https://'));
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => _selectMentionUser(user),
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          width: 65,
-          margin: const EdgeInsets.only(right: 10),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.grey[300]!, width: 1),
-                ),
-                child: CircleAvatar(
-                  radius: 24,
-                  backgroundImage:
-                      hasHttpAvatar ? NetworkImage(user.avatar) : null,
-                  backgroundColor: Colors.grey[200],
-                  child: !hasHttpAvatar
-                      ? Text(
-                          user.name.isNotEmpty
-                              ? user.name[0].toUpperCase()
-                              : '?',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        )
-                      : null,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                constraints: const BoxConstraints(maxWidth: 65),
-                child: Text(
-                  user.name,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.black,
-                    fontWeight: FontWeight.w500,
-                    height: 1.2,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );
