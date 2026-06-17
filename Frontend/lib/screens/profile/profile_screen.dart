@@ -10,9 +10,6 @@ import '../../services/api/report_api.dart';
 import '../../services/browse_history_service.dart';
 import '../../services/chat_service.dart';
 import '../../services/local_storage.dart';
-import '../../widgets/bottom_navigation.dart';
-import '../../widgets/post_card.dart';
-import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import '../admin/admin_screen.dart';
 import '../auth/login_page.dart';
 import '../chat_screen.dart';
@@ -22,9 +19,14 @@ import '../message_screen.dart';
 import '../note_editor/note_editor_screen.dart';
 import '../post_detail_screen.dart';
 import '../privacy_settings_screen.dart';
+import 'profile_bottom_nav.dart';
+import 'profile_browse_history_sheet.dart';
 import 'profile_controller.dart';
+import 'profile_drawer.dart';
 import 'profile_edit_sheet.dart';
 import 'profile_header.dart';
+import 'profile_image_viewer.dart';
+import 'profile_research_directions.dart';
 import 'profile_tabs.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -332,31 +334,16 @@ class _ProfilePageState extends State<ProfilePage>
   void _showAvatarViewer(String? avatar) {
     showDialog(
       context: context, barrierColor: Colors.black87,
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent, insetPadding: EdgeInsets.zero,
-        child: Stack(children: [
-          Center(child: InteractiveViewer(minScale: 0.5, maxScale: 4.0, child: Image(image: ProfileHeader.resolveAvatar(avatar), fit: BoxFit.contain))),
-          Positioned(top: 20, left: 20, child: IconButton(icon: const Icon(Icons.close, color: Colors.white, size: 30), onPressed: () => Navigator.of(ctx).pop())),
-        ]),
-      ),
+      builder: (_) => AvatarViewerDialog(avatar: avatar),
     );
   }
 
   void _showBackgroundViewer(String? background) {
     showDialog(
       context: context, barrierColor: Colors.black87,
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent, insetPadding: EdgeInsets.zero,
-        child: Stack(children: [
-          Center(child: InteractiveViewer(minScale: 0.5, maxScale: 4.0, child: Image(image: ProfileHeader.resolveBackground(background), fit: BoxFit.contain))),
-          if (_isViewingSelf) Positioned(bottom: 20, left: 0, right: 0, child: Center(child: FloatingActionButton.extended(
-            onPressed: () { Navigator.of(ctx).pop(); _pickBackgroundDirectly(); },
-            backgroundColor: Colors.white.withOpacity(0.9),
-            icon: const Icon(Icons.image, color: Colors.black87),
-            label: const Text('更换背景图', style: TextStyle(color: Colors.black87)),
-          ))),
-          Positioned(top: 20, left: 20, child: IconButton(icon: const Icon(Icons.close, color: Colors.white, size: 30), onPressed: () => Navigator.of(ctx).pop())),
-        ]),
+      builder: (_) => BackgroundViewerDialog(
+        background: background,
+        onReplaceBackground: _isViewingSelf ? _pickBackgroundDirectly : null,
       ),
     );
   }
@@ -381,27 +368,15 @@ class _ProfilePageState extends State<ProfilePage>
     await showModalBottomSheet(
       context: rootContext, isScrollControlled: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-      builder: (sheetCtx) => SafeArea(child: SizedBox(
-        height: MediaQuery.of(sheetCtx).size.height * 0.8,
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Padding(padding: const EdgeInsets.fromLTRB(16, 16, 16, 8), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-            const Text('浏览历史', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            TextButton.icon(onPressed: () async { await BrowseHistoryService.clearHistory(userId); Navigator.of(sheetCtx).pop(); if (mounted) _showSnack('浏览历史已清空'); }, icon: const Icon(Icons.delete_outline), label: const Text('清空')),
-          ])),
-          const Divider(height: 1),
-          Expanded(child: MasonryGridView.count(
-            crossAxisCount: 2, crossAxisSpacing: 3, mainAxisSpacing: 3,
-            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
-            itemCount: posts.length,
-            itemBuilder: (ctx, index) {
-              final p = posts[index];
-              return PostCard(post: p, onTap: () { Navigator.of(sheetCtx).pop(); _openPostDetail(p); },
-                onAuthorTap: () { if (p.author.id != _currentUserId) { Navigator.of(sheetCtx).pop(); Navigator.of(rootContext).pushNamed('/user/${p.author.id}'); } },
-                onLikeTap: _handlePostLike);
-            },
-          )),
-        ]),
-      )),
+      builder: (sheetCtx) => BrowseHistorySheet(
+        posts: posts,
+        currentUserId: _currentUserId,
+        onClearConfirmed: () => BrowseHistoryService.clearHistory(userId),
+        onCleared: () { if (mounted) _showSnack('浏览历史已清空'); },
+        onPostTap: _openPostDetail,
+        onAuthorTap: (p) => Navigator.of(rootContext).pushNamed('/user/${p.author.id}'),
+        onLikeTap: _handlePostLike,
+      ),
     );
   }
 
@@ -463,34 +438,35 @@ class _ProfilePageState extends State<ProfilePage>
 
   // ── Drawer ────────────────────────────────────────────────────────
 
-  Drawer? _buildDrawer() {
+  Widget? _buildDrawer() {
     if (!_isViewingSelf) return null;
     final hasAdmin = _profile != null && _profile!.role.isAdmin;
-    return Drawer(child: ListView(padding: EdgeInsets.zero, children: [
-      const DrawerHeader(child: Text('菜单', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold))),
-      if (hasAdmin) ListTile(leading: const Icon(Icons.admin_panel_settings), title: const Text('管理员模式'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => AdminScreen(role: _profile!.role.name))); }),
-      ListTile(leading: const Icon(Icons.settings), title: const Text('隐私设置'), onTap: () { Navigator.pop(context); Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacySettingsScreen())); }),
-      ListTile(leading: const Icon(Icons.history), title: const Text('浏览历史'), onTap: () async { Navigator.pop(context); await _openBrowseHistory(); }),
-      const Divider(),
-      ListTile(leading: const Icon(Icons.logout, color: Colors.red), title: const Text('登出'), onTap: () async {
-        Navigator.pop(context);
+    return ProfileDrawer(
+      isAdmin: hasAdmin,
+      onOpenAdmin: () => Navigator.push(context, MaterialPageRoute(builder: (_) => AdminScreen(role: _profile!.role.name))),
+      onOpenPrivacy: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacySettingsScreen())),
+      onOpenHistory: _openBrowseHistory,
+      onLogout: () async {
         await ProfileController.logout();
         if (!mounted) return;
         Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => LoginPage()));
-      }),
-    ]));
+      },
+    );
   }
 
   // ── Bottom nav ────────────────────────────────────────────────────
 
   Widget _buildBottomNavigationBar() {
-    return BottomNavigation(currentIndex: _currentIndex, onTap: (index) {
-      setState(() => _currentIndex = index);
-      if (index == 0) { Navigator.pushNamed(context, '/home').then((_) => setState(() => _currentIndex = 3)); }
-      else if (index == 1) { Navigator.push(context, PageRouteBuilder(pageBuilder: (_, __, ___) => const MessageScreen(), transitionsBuilder: (_, __, ___, child) => child, transitionDuration: Duration.zero)).then((_) => setState(() => _currentIndex = 3)); }
-      else if (index == 2) { Navigator.push(context, PageRouteBuilder(pageBuilder: (_, __, ___) => const NoteEditorPage(), transitionsBuilder: (_, __, ___, child) => child, transitionDuration: Duration.zero)).then((_) => setState(() => _currentIndex = 3)); }
-      else if (index == 3) { if (!_isViewingSelf) { Navigator.push(context, PageRouteBuilder(pageBuilder: (_, __, ___) => const ProfilePage(isMainPage: true), transitionsBuilder: (_, __, ___, child) => child, transitionDuration: Duration.zero)).then((_) => setState(() => _currentIndex = 3)); } }
-    }, context: context);
+    return ProfileBottomNav(
+      currentIndex: _currentIndex,
+      onNavigate: (index) {
+        setState(() => _currentIndex = index);
+        if (index == 0) { Navigator.pushNamed(context, '/home').then((_) => setState(() => _currentIndex = 3)); }
+        else if (index == 1) { Navigator.push(context, PageRouteBuilder(pageBuilder: (_, __, ___) => const MessageScreen(), transitionsBuilder: (_, __, ___, child) => child, transitionDuration: Duration.zero)).then((_) => setState(() => _currentIndex = 3)); }
+        else if (index == 2) { Navigator.push(context, PageRouteBuilder(pageBuilder: (_, __, ___) => const NoteEditorPage(), transitionsBuilder: (_, __, ___, child) => child, transitionDuration: Duration.zero)).then((_) => setState(() => _currentIndex = 3)); }
+        else if (index == 3) { if (!_isViewingSelf) { Navigator.push(context, PageRouteBuilder(pageBuilder: (_, __, ___) => const ProfilePage(isMainPage: true), transitionsBuilder: (_, __, ___, child) => child, transitionDuration: Duration.zero)).then((_) => setState(() => _currentIndex = 3)); } }
+      },
+    );
   }
 
   // ── Snack helper ──────────────────────────────────────────────────
@@ -549,7 +525,7 @@ class _ProfilePageState extends State<ProfilePage>
           onOpenFollowList: (showFollowers) => _openFollowList(showFollowers),
           onShowAvatarViewer: _showAvatarViewer,
         ),
-        _buildResearchDirections(_profile!),
+        ProfileResearchDirections(profile: _profile!),
         ProfileTabs(
           isViewingSelf: _isViewingSelf,
           canViewFavorites: _canViewFavorites,
@@ -573,35 +549,5 @@ class _ProfilePageState extends State<ProfilePage>
     );
   }
 
-  Widget _buildResearchDirections(UserProfile profile) {
-    final directions = profile.researchDirections;
-    final scheme = Theme.of(context).colorScheme;
-    final cardColor = scheme.surfaceVariant;
-    final textColor = scheme.onSurface;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Text('研究方向', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: textColor)),
-        ]),
-        const SizedBox(height: 8),
-        Container(
-          width: double.infinity, padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(color: cardColor, borderRadius: BorderRadius.circular(12), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 6, offset: const Offset(0, 3))]),
-          child: directions.isEmpty
-              ? Text('还没有填写研究方向', style: TextStyle(color: textColor.withOpacity(0.6)))
-              : Wrap(spacing: 8, runSpacing: 8, children: directions.map((d) => _buildDirectionChip(d, scheme)).toList()),
-        ),
-      ]),
-    );
-  }
-
-  Widget _buildDirectionChip(String label, ColorScheme scheme) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(color: scheme.surface.withOpacity(0.8), border: Border.all(color: scheme.primary.withOpacity(0.6), width: 1), borderRadius: BorderRadius.circular(10)),
-      child: Text(label, style: TextStyle(color: scheme.onSurface, fontSize: 14)),
-    );
-  }
 }
 
