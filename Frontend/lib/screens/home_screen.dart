@@ -13,12 +13,10 @@
 ///
 import 'package:flutter/material.dart';
 import '../models/post_model.dart';
-import '../widgets/post_card.dart';
 import '../widgets/feed_widget.dart';
 import 'search_screen.dart';
 import 'profile_screen.dart';
 import 'message_screen.dart';
-import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'post_detail_screen.dart';
 import '../widgets/bottom_navigation.dart';
 import 'note_editor/note_editor_screen.dart';
@@ -32,7 +30,7 @@ import '../services/browse_history_service.dart';
 import '../constants/discipline_constants.dart';
 import 'home/home_tab_bar.dart';
 import 'home/following_feed.dart';
-import 'home/home_loading_indicator.dart';
+import 'home/zone_tab.dart';
 
 /// 首页入口组件（Stateful）：承载发现流与分区切换
 class HomeScreen extends StatefulWidget {
@@ -581,7 +579,15 @@ class _HomeScreenState extends State<HomeScreen> {
                           onPostTap: _onFeedPostTap,
                           onAuthorTap: _openUserProfile,
                         )
-                      : _buildZoneTabContent(), // 分区页
+                      : ZoneTab(
+                          currentDiscipline: _currentZoneDiscipline,
+                          posts: _zonePosts,
+                          isLoading: _zoneLoading,
+                          onDisciplineSelected: _onZoneDisciplineSelected,
+                          onPostTap: _onPostTap,
+                          onAuthorTap: _openUserProfile,
+                          onLikeTap: _handlePostLike,
+                        ), // 分区页
             ),
           ],
         ),
@@ -628,120 +634,16 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// 分区首页内容：顶部分区滑条 + 当前分区的瀑布流
-  Widget _buildZoneTabContent() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildZoneSelectorBar(),
-        const Divider(height: 1),
-        Expanded(
-          child: _buildZoneWaterfallGrid(),
-        ),
-      ],
-    );
-  }
-
-  /// 顶部分区滑条
-  Widget _buildZoneSelectorBar() {
-    return SizedBox(
-      height: 48,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        itemBuilder: (context, index) {
-          final discipline = kMainDisciplines[index];
-          final selected = discipline == _currentZoneDiscipline;
-          final color = kDisciplineColors[discipline] ?? Colors.blue;
-          final isDark = Theme.of(context).brightness == Brightness.dark;
-          final textColor = isDark ? Colors.white : Colors.black87;
-          return GestureDetector(
-            onTap: () {
-              if (_currentZoneDiscipline == discipline) return;
-              setState(() {
-                _currentZoneDiscipline = discipline;
-                // 切换分区时重置状态并加载新分区的数据
-                _zonePosts.clear();
-                _zonePage = 1;
-                _zoneHasMore = true;
-              });
-              _loadZonePosts();
-            },
-            child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: selected
-                    ? color.withOpacity(isDark ? 0.3 : 0.12)
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: selected
-                      ? color
-                      : (isDark ? Colors.white24 : Colors.grey.shade300),
-                ),
-              ),
-              child: Center(
-                child: Text(
-                  discipline,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight:
-                        selected ? FontWeight.w600 : FontWeight.normal,
-                    color: textColor,
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemCount: kMainDisciplines.length,
-      ),
-    );
-  }
-
-  /// 分区内瀑布流（使用后端标签过滤）
-  Widget _buildZoneWaterfallGrid() {
-    // 使用独立的帖子列表和加载状态
-    if (_zonePosts.isEmpty && _zoneLoading) {
-      return _buildInitialLoading();
-    }
-
-    if (_zonePosts.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32.0),
-          child: Text(
-            '当前分区暂时没有内容，试试切换到其他分区或先在该分区发布一条笔记吧～',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey[600]),
-          ),
-        ),
-      );
-    }
-
-    return MasonryGridView.count(
-      crossAxisCount: 2,
-      crossAxisSpacing: 3,
-      mainAxisSpacing: 3,
-      padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
-      itemCount: _zonePosts.length,
-      itemBuilder: (context, index) {
-        final post = _zonePosts[index];
-        return PostCard(
-          post: post,
-          onTap: () => _onPostTap(post),
-          onAuthorTap: () => _openUserProfile(post.author.id),
-          onLikeTap: _handlePostLike,
-        );
-      },
-    );
-  }
-
-  /// 首屏加载过程中的占位视图（分区流使用，委托共享组件）
-  Widget _buildInitialLoading() {
-    return const HomeLoadingIndicator();
+  /// 切换分区：重置分区流状态并加载新分区数据。
+  void _onZoneDisciplineSelected(String discipline) {
+    setState(() {
+      _currentZoneDiscipline = discipline;
+      // 切换分区时重置状态并加载新分区的数据
+      _zonePosts.clear();
+      _zonePage = 1;
+      _zoneHasMore = true;
+    });
+    _loadZonePosts();
   }
 
   /// 底部自定义导航：
