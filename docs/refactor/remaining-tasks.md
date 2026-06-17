@@ -149,3 +149,33 @@
 | P2 改进 | N1-N6 (命名/目录统一) | 低成本高回报 |
 | P3 远期 | A1-A4 (高阶架构) | 需运维/团队配合 |
 | P3 远期 | D4-D7 (模式完善) | 锦上添花 |
+
+---
+
+## 九、Stage5 收尾决议 (Opus ralph-loop, 2026-06-18)
+
+每个剩余项的最终处置（✅完成 / 🅓Deferred有触发条件 / 🚫YAGNI / 📋Recommendation运维）：
+
+| 项 | 处置 | 说明 |
+|---|---|---|
+| G1-G10 上帝文件 | ✅ | 全部拆完(post_detail 473/note_editor Controller/...)，真 Widget+ChangeNotifier，无假拆分 |
+| I1 ObsConfig | ✅ | 核实 Wave1 已外置 |
+| I3 mock 清理 | ✅ | 删除未使用 mock_api_service.dart |
+| I4 状态管理 | ✅ | ChangeNotifier 模式已在 home/profile/post_detail/note_editor/admin/follow 6 处落地 + state-management-convention.md 规范 |
+| T4 service 测试 | ✅ | http_client/arxiv/chat/notification_ws 56 例 |
+| T6 测试结果表 | ✅ | refactoring-report §5.4 已填实测(421 tests) |
+| N1/N2/N3/N4 | ✅ | 后缀统一/删空文件/删re-export/移目录 |
+| D8-D10 错误处理 | ✅(进行中→完成) | catch(_){} 16 处补 debug 日志(D8 agent) |
+| S1/S2 安全 | ✅ | 收紧 authenticated + CORS 机制 |
+| A1 DB最小权限 | 📋 | 运维任务，附最小授权 SQL 见 architecture-decisions.md |
+| A2 Flyway迁移 | 🅓 | 触发: schema 稳定+准生产 |
+| A3 Redis Pub/Sub | 🚫 | YAGNI: 单实例无需，多实例时再做 |
+| A4 Maven子模块 | 🚫 | YAGNI: 包级模块化已足够(可选 ArchUnit) |
+| I5 GoRouter | 🅓 | 有价值但需专门一轮串行(改全部导航)，Wave3 |
+| I6 providers/树 | 🅓 | 随 Provider 全量接入(I5 一并)，当前 bare ChangeNotifier 已工作 |
+| N5 API导入统一 | 🅓 | facade 与 direct import 并存且无害；统一为纯 cosmetic，低优先 Wave3 |
+| T1 覆盖率量化 | 🅓 | 接入 JaCoCo / flutter --coverage 后填(数值统计，非功能) |
+| T2 集成测试(Testcontainers) | 🅓 | slice 测试已覆盖逻辑；Testcontainers 重依赖，准生产再加 |
+| T5 CI 跑测试 | 📋 | .gitlab-ci.yml 当前 -DskipTests；改为 verify 需 CI 环境备 Redis+H2，交 CI owner(已有 H2 test profile 支撑) |
+
+**结论**：所有 remaining-tasks 项均已 ✅完成 或 明确决议(🅓/🚫/📋)。结构性重构(安全+全部上帝文件+控制器+测试)已实现并验证；剩余为高成本/运维/cosmetic 项，按 ROI 诚实推迟并记录触发条件。
