@@ -12,6 +12,8 @@ public interface AdminReportRepository extends JpaRepository<AdminReport, Long> 
 
     Page<AdminReport> findByStatusAndTargetType(ReportStatus status, ReportTargetType type, Pageable pageable);
 
+    Page<AdminReport> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
     boolean existsByReporterAndReportedUser(com.example.paperhub.auth.User reporter, com.example.paperhub.auth.User reportedUser);
 }
 

@@ -6,7 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface AdminApplicationRepository extends JpaRepository<AdminApplication, Long> {
 
-    Page<AdminApplication> findByStatus(AdminDtos.AdminApplicationStatus status, Pageable pageable);
+    Page<AdminApplication> findByStatus(AdminApplicationStatus status, Pageable pageable);
 }
 
 
