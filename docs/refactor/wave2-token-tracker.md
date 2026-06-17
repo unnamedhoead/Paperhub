@@ -40,3 +40,21 @@
 - api_service: 114 static methods → 9 domain API files
 - pages/ → screens/auth/ migrated
 - 4 review blockers: ALL FIXED ✅
+
+---
+
+## P2 Round-2 (Opus 接手, ralph-loop) — 上帝文件二轮拆分
+
+| Agent | 域 | Tokens | 结果 |
+|---|---|---|---|
+| admin (ac7448) | admin_post_section+controller | 90,415 | ✅ 616→173 / 590→249 |
+| interaction (a8ce09) | follow_list+N4+notif_ws test | 100,461 | ✅ 851→178 |
+| chat (aa5066) | chat_screen+share_bubble+chat_service test | 142,199 | ✅ 610→287 / 483→186 |
+| profile (ae613c) | profile_screen | 185,069 | ✅ 607→290 (回收后 fallback 主仓提交 bfb4048) |
+| discovery-STALLED (a697ab) | home+search(一次吞两个) | 195,142 | ❌ stall 浪费, 重委托 |
+| search-redo (a90d23) | search_screen | 111,925 | ✅ 750→297 |
+| home-redo (adc023) | home_screen | 145,030 | ✅ 1017→230 |
+
+- P2 round-2 小计: ~970,241 tokens (含 195k stall 浪费)。
+- Opus 主循环另做: P0 S1 安全 + arxiv 测试 + ADR + 文档 (未单独计)。
+- 教训: 单 agent 吞两个大文件→stall(discovery); 拆成单文件 agent + 逐组件 commit→成功(home/search redo)。
