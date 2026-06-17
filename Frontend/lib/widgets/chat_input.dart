@@ -1,27 +1,19 @@
-/// 聊天输入框组件
+/// 聊天输入框组件 — 主入口（组合组件）
 ///
-/// 功能：
-/// - 文本输入和发送
-/// - 多行文本支持
-/// - 表情和附件按钮
-/// - 发送按钮状态管理
+/// 组合以下子组件：
+/// - AttachmentPicker  附件选择 + 上传
+/// - AudioRecorderButton  长按录音
+///
+/// 自身负责：文本输入 + 表情按钮 + 发送按钮 + 布局
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:image_picker/image_picker.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:http/http.dart' as http;
-import 'package:record/record.dart';
-import 'dart:convert';
-import 'dart:typed_data';
-import 'dart:io';
-import '../services/local_storage.dart';
-import '../config/app_env.dart';
-import 'web_audio_recorder.dart' if (dart.library.io) 'web_audio_recorder_stub.dart';
+import 'attachment_picker.dart';
+import 'audio_recorder_button.dart';
 
 class ChatInput extends StatefulWidget {
   final TextEditingController controller;
   final Function(String) onSend;
-  final Function(List<String> mediaUrls, String messageType, String fileName, int fileSize)? onSendMedia;
+  final Function(List<String> mediaUrls, String messageType, String fileName,
+      int fileSize)? onSendMedia;
   final String hintText;
   final bool enabled;
   final int maxLines;
@@ -42,12 +34,7 @@ class ChatInput extends StatefulWidget {
 
 class _ChatInputState extends State<ChatInput> {
   bool _isComposing = false;
-  FocusNode _focusNode = FocusNode();
-  final AudioRecorder _audioRecorder = AudioRecorder();
-  WebAudioRecorder? _webAudioRecorder;
-  bool _isRecording = false;
-  String? _recordingPath;
-  Uint8List? _webRecordingData;
+  final FocusNode _focusNode = FocusNode();
 
   @override
   void initState() {
@@ -61,8 +48,6 @@ class _ChatInputState extends State<ChatInput> {
     widget.controller.removeListener(_onTextChanged);
     _focusNode.removeListener(_onFocusChanged);
     _focusNode.dispose();
-    _audioRecorder.dispose();
-    _webAudioRecorder?.dispose();
     super.dispose();
   }
 
@@ -74,57 +59,38 @@ class _ChatInputState extends State<ChatInput> {
   }
 
   void _onFocusChanged() {
-    if (_focusNode.hasFocus) {
-      // 获得焦点时的处理
-    }
+    // 获得焦点时的处理（预留）
   }
 
   void _handleSend() {
     final text = widget.controller.text.trim();
     if (text.isEmpty || !widget.enabled) return;
-
     widget.onSend(text);
   }
 
   void _handleEmojiButton() {
-    // TODO: 实现表情选择器
     _showEmojiPicker();
   }
 
   void _handleAttachmentButton() {
-    // TODO: 实现附件选择
-    _showAttachmentOptions();
+    if (widget.onSendMedia != null) {
+      AttachmentPicker.showAttachmentOptions(
+        context,
+        onSendMedia: widget.onSendMedia!,
+      );
+    }
   }
 
   void _showEmojiPicker() {
-    // 简单的表情选择实现
     final emojis = [
-      '😀',
-      '😃',
-      '😄',
-      '😁',
-      '😅',
-      '😂',
-      '🤣',
-      '😊',
-      '😇',
-      '🙂',
-      '😉',
-      '😌',
-      '😍',
-      '🥰',
-      '😘',
-      '😗',
-      '😙',
-      '😚',
-      '😋',
-      '😛',
+      '😀', '😃', '😄', '😁', '😅', '😂', '🤣', '😊', '😇', '🙂',
+      '😉', '😌', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛',
     ];
 
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
+      builder: (ctx) => Container(
         decoration: const BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
@@ -152,7 +118,8 @@ class _ChatInputState extends State<ChatInput> {
               height: 200,
               padding: const EdgeInsets.all(16),
               child: GridView.builder(
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                gridDelegate:
+                    const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 8,
                   childAspectRatio: 1,
                   crossAxisSpacing: 8,
@@ -163,7 +130,7 @@ class _ChatInputState extends State<ChatInput> {
                   return GestureDetector(
                     onTap: () {
                       widget.controller.text += emojis[index];
-                      Navigator.pop(context);
+                      Navigator.pop(ctx);
                       _focusNode.requestFocus();
                     },
                     child: Container(
@@ -189,440 +156,9 @@ class _ChatInputState extends State<ChatInput> {
     );
   }
 
-  void _showAttachmentOptions() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 36,
-              height: 4,
-              margin: const EdgeInsets.symmetric(vertical: 12),
-              decoration: BoxDecoration(
-                color: Colors.grey[300],
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Text(
-                '选择附件类型',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              ),
-            ),
-            ListTile(
-              leading: const Icon(
-                Icons.photo_library,
-                color: Color(0xFF1976D2),
-              ),
-              title: const Text('图片和视频'),
-              subtitle: const Text('从相册选择图片或视频'),
-              onTap: () {
-                Navigator.pop(context);
-                _pickMedia();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.camera_alt, color: Color(0xFF1976D2)),
-              title: const Text('拍照'),
-              subtitle: const Text('使用相机拍照'),
-              onTap: () {
-                Navigator.pop(context);
-                _pickImage(ImageSource.camera);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.attach_file, color: Color(0xFF1976D2)),
-              title: const Text('文件'),
-              subtitle: const Text('选择文档文件'),
-              onTap: () {
-                Navigator.pop(context);
-                _pickFile();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.mic, color: Color(0xFF1976D2)),
-              title: const Text('语音文件'),
-              subtitle: const Text('上传音频文件'),
-              onTap: () {
-                Navigator.pop(context);
-                _pickAudioFile();
-              },
-            ),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _pickMedia() async {
-    final ImagePicker picker = ImagePicker();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('选择类型'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.image),
-              title: const Text('图片'),
-              onTap: () async {
-                Navigator.pop(context);
-                final XFile? file = await picker.pickImage(source: ImageSource.gallery);
-                if (file != null && widget.onSendMedia != null) {
-                  await _uploadAndSendMediaFile(file, 'IMAGE');
-                }
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.video_library),
-              title: const Text('视频'),
-              onTap: () async {
-                Navigator.pop(context);
-                final XFile? file = await picker.pickVideo(source: ImageSource.gallery);
-                if (file != null && widget.onSendMedia != null) {
-                  await _uploadAndSendMediaFile(file, 'VIDEO');
-                }
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _pickImage(ImageSource source) async {
-    final ImagePicker picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: source);
-
-    if (image != null && widget.onSendMedia != null) {
-      await _uploadAndSendMediaFile(image, 'IMAGE');
-    }
-  }
-
-  Future<void> _pickFile() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx',
-                          'txt', 'csv', 'zip', 'rar', '7z', 'exe', 'mp4'],
-    );
-
-    if (result != null && widget.onSendMedia != null) {
-      final file = result.files.single;
-      await _uploadAndSendMediaBytes(file.bytes!, file.name, 'FILE');
-    }
-  }
-
-  Future<void> _pickAudioFile() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['mp3', 'wav', 'm4a', 'ogg', 'aac', 'webm'],
-    );
-
-    if (result != null && widget.onSendMedia != null) {
-      final file = result.files.single;
-      await _uploadAndSendMediaBytes(file.bytes!, file.name, 'VOICE');
-    }
-  }
-
-  Future<void> _uploadAndSendMediaFile(XFile file, String messageType) async {
-    final bytes = await file.readAsBytes();
-    await _uploadAndSendMediaBytes(bytes, file.name, messageType);
-  }
-
-  Future<void> _uploadAndSendMediaBytes(
-    List<int> bytes,
-    String fileName,
-    String messageType,
-  ) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const Center(child: CircularProgressIndicator()),
-    );
-
-    try {
-      final url = await _uploadFileBytes(bytes, fileName);
-
-      Navigator.pop(context);
-
-      if (url != null && widget.onSendMedia != null) {
-        widget.onSendMedia!([url], messageType, fileName, bytes.length);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('上传失败，未获取到文件URL')),
-        );
-      }
-    } catch (e) {
-      Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('上传失败: $e')),
-      );
-    }
-  }
-
-  Future<String?> _uploadFileBytes(List<int> bytes, String fileName) async {
-    try {
-      final String? token = LocalStorage.instance.read('accessToken');
-      if (token == null) {
-        throw Exception('未登录');
-      }
-
-      var request = http.MultipartRequest(
-        'POST',
-        Uri.parse('${AppEnv.apiBaseUrl}/api/upload/chat-file'),
-      );
-
-      request.headers['Authorization'] = 'Bearer $token';
-      request.files.add(http.MultipartFile.fromBytes(
-        'file',
-        bytes,
-        filename: fileName,
-      ));
-
-      var streamedResponse = await request.send();
-      var response = await http.Response.fromStream(streamedResponse);
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        print('上传成功: ${data['url']}');
-        return data['url'];
-      } else {
-        throw Exception('上传失败: ${response.body}');
-      }
-    } catch (e) {
-      print('上传文件失败: $e');
-      return null;
-    }
-  }
-
-  Future<void> _startRecording() async {
-    print('[VoiceRecorder] 开始录音请求');
-
-    if (kIsWeb) {
-      print('[VoiceRecorder] Web平台使用浏览器录音');
-      try {
-        _webAudioRecorder = WebAudioRecorder();
-
-        if (!await _webAudioRecorder!.hasPermission()) {
-          print('[VoiceRecorder] 无麦克风权限');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('需要麦克风权限才能录音')),
-            );
-          }
-          return;
-        }
-
-        _webAudioRecorder!.onStop.listen((data) {
-          print('[VoiceRecorder] Web录音数据接收: ${data.length} bytes');
-          _webRecordingData = data;
-        });
-
-        await _webAudioRecorder!.start();
-        print('[VoiceRecorder] Web录音已开始');
-
-        setState(() {
-          _isRecording = true;
-        });
-      } catch (e) {
-        print('[VoiceRecorder] Web录音启动失败: $e');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('录音失败: $e')),
-          );
-        }
-      }
-      return;
-    }
-
-    if (!await _audioRecorder.hasPermission()) {
-      print('[VoiceRecorder] 无麦克风权限');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('需要麦克风权限才能录音')),
-        );
-      }
-      return;
-    }
-
-    try {
-      final path = '${Directory.systemTemp.path}/audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
-      print('[VoiceRecorder] 录音路径: $path');
-
-      await _audioRecorder.start(const RecordConfig(), path: path);
-      print('[VoiceRecorder] 录音已开始');
-
-      setState(() {
-        _isRecording = true;
-        _recordingPath = path;
-      });
-    } catch (e) {
-      print('[VoiceRecorder] 录音启动失败: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('录音失败: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _stopRecording() async {
-    print('[VoiceRecorder] 停止录音');
-
-    setState(() {
-      _isRecording = false;
-    });
-
-    if (kIsWeb) {
-      await _webAudioRecorder?.stop();
-      await Future.delayed(const Duration(milliseconds: 100));
-
-      if (_webRecordingData == null || _webRecordingData!.isEmpty) {
-        print('[VoiceRecorder] Web录音数据为空');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('录音失败，请重试')),
-          );
-        }
-        return;
-      }
-
-      final bytes = _webRecordingData!;
-      final fileName = 'voice_${DateTime.now().millisecondsSinceEpoch}.webm';
-      print('[VoiceRecorder] Web录音文件大小: ${bytes.length} bytes');
-
-      if (bytes.length < 1000) {
-        print('[VoiceRecorder] 录音时间太短');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('录音时间太短')),
-          );
-        }
-        _webRecordingData = null;
-        return;
-      }
-
-      if (mounted) {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => const Center(child: CircularProgressIndicator()),
-        );
-      }
-
-      try {
-        final url = await _uploadFileBytes(bytes, fileName);
-        print('[VoiceRecorder] 上传结果: $url');
-
-        if (mounted) Navigator.pop(context);
-
-        if (url != null && widget.onSendMedia != null) {
-          widget.onSendMedia!([url], 'VOICE', fileName, bytes.length);
-          print('[VoiceRecorder] 语音消息发送成功');
-        } else {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('语音上传失败')),
-            );
-          }
-        }
-      } catch (e) {
-        print('[VoiceRecorder] 上传异常: $e');
-        if (mounted) {
-          Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('语音上传失败: $e')),
-          );
-        }
-      } finally {
-        _webRecordingData = null;
-      }
-      return;
-    }
-
-    final path = await _audioRecorder.stop();
-    print('[VoiceRecorder] 录音已停止，路径: $path');
-
-    if (path != null && widget.onSendMedia != null) {
-      final file = File(path);
-      if (!await file.exists()) {
-        print('[VoiceRecorder] 录音文件不存在');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('录音文件不存在')),
-          );
-        }
-        return;
-      }
-
-      final bytes = await file.readAsBytes();
-      final fileName = path.split('/').last;
-      print('[VoiceRecorder] 录音文件大小: ${bytes.length} bytes');
-
-      if (bytes.length < 1000) {
-        print('[VoiceRecorder] 录音时间太短');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('录音时间太短')),
-          );
-        }
-        file.delete();
-        return;
-      }
-
-      if (mounted) {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => const Center(child: CircularProgressIndicator()),
-        );
-      }
-
-      try {
-        final url = await _uploadFileBytes(bytes, fileName);
-        print('[VoiceRecorder] 上传结果: $url');
-
-        if (mounted) Navigator.pop(context);
-
-        if (url != null) {
-          widget.onSendMedia!([url], 'VOICE', fileName, bytes.length);
-          print('[VoiceRecorder] 语音消息发送成功');
-        } else {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('语音上传失败')),
-            );
-          }
-        }
-      } catch (e) {
-        print('[VoiceRecorder] 上传异常: $e');
-        if (mounted) {
-          Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('语音上传失败: $e')),
-          );
-        }
-      } finally {
-        file.delete();
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final onSurfaceVariant = scheme.onSurfaceVariant;
     return Container(
       decoration: BoxDecoration(
         color: scheme.surface,
@@ -637,22 +173,18 @@ class _ChatInputState extends State<ChatInput> {
       ),
       child: Row(
         children: [
-          // 表情按钮
           _buildIconButton(
             icon: Icons.emoji_emotions_outlined,
             onPressed: _handleEmojiButton,
           ),
-
-          // 附件按钮
           _buildIconButton(
             icon: Icons.add_circle_outline,
             onPressed: _handleAttachmentButton,
           ),
-
-          // 输入框
           Expanded(
             child: Container(
-              constraints: const BoxConstraints(minHeight: 40, maxHeight: 120),
+              constraints:
+                  const BoxConstraints(minHeight: 40, maxHeight: 120),
               child: TextField(
                 controller: widget.controller,
                 focusNode: _focusNode,
@@ -662,7 +194,8 @@ class _ChatInputState extends State<ChatInput> {
                 textCapitalization: TextCapitalization.sentences,
                 decoration: InputDecoration(
                   hintText: widget.hintText,
-                  hintStyle: TextStyle(color: onSurfaceVariant, fontSize: 16),
+                  hintStyle: TextStyle(
+                      color: scheme.onSurfaceVariant, fontSize: 16),
                   border: InputBorder.none,
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 12,
@@ -678,9 +211,7 @@ class _ChatInputState extends State<ChatInput> {
               ),
             ),
           ),
-
-          // 发送按钮
-          _buildSendButton(),
+          _buildSendOrMicButton(),
         ],
       ),
     );
@@ -701,7 +232,7 @@ class _ChatInputState extends State<ChatInput> {
     );
   }
 
-  Widget _buildSendButton() {
+  Widget _buildSendOrMicButton() {
     if (_isComposing) {
       return Container(
         margin: const EdgeInsets.only(left: 4, right: 8),
@@ -710,7 +241,8 @@ class _ChatInputState extends State<ChatInput> {
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: widget.enabled ? const Color(0xFF1976D2) : Colors.grey[300],
+            color:
+                widget.enabled ? const Color(0xFF1976D2) : Colors.grey[300],
             borderRadius: BorderRadius.circular(20),
             boxShadow: widget.enabled
                 ? [
@@ -737,53 +269,9 @@ class _ChatInputState extends State<ChatInput> {
 
     return Container(
       margin: const EdgeInsets.only(left: 4, right: 8),
-      child: GestureDetector(
-        onLongPressStart: (_) {
-          print('[VoiceRecorder] 长按开始');
-          _startRecording();
-        },
-        onLongPressEnd: (_) {
-          print('[VoiceRecorder] 长按结束');
-          _stopRecording();
-        },
-        onLongPressCancel: () {
-          print('[VoiceRecorder] 长按取消');
-          if (_isRecording) {
-            if (kIsWeb) {
-              _webAudioRecorder?.stop();
-            } else {
-              _audioRecorder.stop();
-            }
-            setState(() {
-              _isRecording = false;
-            });
-          }
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          width: _isRecording ? 48 : 32,
-          height: _isRecording ? 48 : 32,
-          decoration: BoxDecoration(
-            color: _isRecording
-                ? Colors.red
-                : (widget.enabled ? const Color(0xFF1976D2) : Colors.grey[300]),
-            borderRadius: BorderRadius.circular(_isRecording ? 24 : 16),
-            boxShadow: _isRecording
-                ? [
-                    BoxShadow(
-                      color: Colors.red.withOpacity(0.3),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : null,
-          ),
-          child: Icon(
-            Icons.mic,
-            color: widget.enabled ? Colors.white : Colors.grey[600],
-            size: _isRecording ? 24 : 16,
-          ),
-        ),
+      child: AudioRecorderButton(
+        enabled: widget.enabled,
+        onSendMedia: widget.onSendMedia,
       ),
     );
   }
