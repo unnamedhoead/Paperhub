@@ -22,6 +22,7 @@ import '../models/search_model.dart';
 import '../services/search_history_service.dart';
 import '../services/api_service.dart';
 import 'search/search_bar.dart';
+import 'search/search_history_section.dart';
 import 'search/search_placeholders.dart';
 import 'search/search_type_selector.dart';
 import 'search_results_screen.dart';
@@ -324,7 +325,20 @@ class _SearchScreenState extends State<SearchScreen> {
                   ),
 
                   // 历史记录区域
-                  _buildHistorySection(),
+                  SearchHistorySection(
+                    history: _searchHistory,
+                    isLoading: _isLoading,
+                    isExpanded: _isHistoryExpanded,
+                    searchTypeLabels: _searchTypeOptions,
+                    onClearHistory: _onClearHistory,
+                    onToggleExpand: () {
+                      setState(() {
+                        _isHistoryExpanded = !_isHistoryExpanded;
+                      });
+                    },
+                    onItemTap: _onHistoryItemTap,
+                    onDeleteItem: _onDeleteHistoryItem,
+                  ),
 
                   // 热搜榜区域
                   _buildHotSearchSection(),
@@ -334,113 +348,6 @@ class _SearchScreenState extends State<SearchScreen> {
           ],
         ),
       ),
-    );
-  }
-
-  /// 搜索历史区域（Sliver）：
-  /// - 加载中：圆形进度条
-  /// - 空状态：文案占位
-  /// - 否则：列表项 + “清空历史”按钮
-  Widget _buildHistorySection() {
-    final scheme = Theme.of(context).colorScheme;
-    return SliverToBoxAdapter(
-      child: Container(
-        margin: const EdgeInsets.only(top: 16),
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 标题栏
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    '搜索历史',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  // 清空历史按钮
-                  if (_searchHistory.isNotEmpty)
-                    TextButton(
-                      onPressed: _onClearHistory,
-                      child: const Text(
-                        '清空历史',
-                        style: TextStyle(fontSize: 14, color: Colors.grey),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-
-            // 历史记录列表
-            if (_isLoading)
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (_searchHistory.isEmpty)
-              const SearchEmptyState(message: '暂无搜索历史')
-            else
-              Column(
-                children: [
-                  ..._buildHistoryItemList(),
-                  if (_searchHistory.length > 5)
-                    // 展开/收起按钮
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Center(
-                        child: TextButton(
-                          onPressed: () {
-                            setState(() {
-                              _isHistoryExpanded = !_isHistoryExpanded;
-                            });
-                          },
-                          child: Text(
-                            _isHistoryExpanded ? '收起' : '展开',
-                            style: const TextStyle(fontSize: 14, color: Colors.grey),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 构建历史记录项列表（根据展开状态决定显示数量）
-  List<Widget> _buildHistoryItemList() {
-    final displayCount = _isHistoryExpanded || _searchHistory.length <= 5
-        ? _searchHistory.length
-        : 5;
-    return _searchHistory
-        .take(displayCount)
-        .map((item) => _buildHistoryItem(item))
-        .toList();
-  }
-
-  /// 单条历史记录项
-  /// - 左侧历史图标；标题为关键词；副标题为搜索方式文案
-  /// - 右侧删除按钮（单条删除）
-  Widget _buildHistoryItem(SearchHistoryItem item) {
-    return ListTile(
-      leading: const Icon(Icons.history, color: Colors.grey, size: 20),
-      title: Text(item.keyword),
-      subtitle: Text(
-        '搜索方式: ${_searchTypeOptions[item.searchType]}',
-        style: const TextStyle(fontSize: 12, color: Colors.grey),
-      ),
-      trailing: IconButton(
-        icon: const Icon(Icons.close, size: 18, color: Colors.grey),
-        onPressed: () => _onDeleteHistoryItem(item.id),
-      ),
-      onTap: () => _onHistoryItemTap(item),
     );
   }
 
