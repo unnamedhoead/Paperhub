@@ -66,3 +66,7 @@
 - N2: 删 pages/note_editor_page.dart 无用 re-export。
 - N1: auth 5 文件 _page→_screen 后缀, 修 router+profile import。analyze 0, tests 绿。
 - G1 agent(a44727) 后台进行中(post_detail 抽 PostDetailController)。
+
+## G10 完成 + N1/N2
+- G10 合并: note_editor extension→NoteEditorController(ChangeNotifier)+3 mixin+发布service, 28 单测。合并后全量 165 tests 绿, analyze 0。(G10 worktree 报的 message_bubble fail 是 worktree-local 假象, 主干无此问题, 已验证。)
+- G1(post_detail, a44727) 仍在跑。
