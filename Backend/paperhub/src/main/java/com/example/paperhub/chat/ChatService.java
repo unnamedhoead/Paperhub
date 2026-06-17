@@ -6,7 +6,8 @@ import com.example.paperhub.auth.User;
 import com.example.paperhub.auth.UserRepository;
 import com.example.paperhub.auth.UserStatus;
 import com.example.paperhub.websocket.ChatWebSocketService;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -14,277 +15,306 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
 public class ChatService {
 
-    private static final Logger logger = LoggerFactory.getLogger(ChatService.class);
-
-    @Autowired
-    private ConversationRepository conversationRepository;
-
-    @Autowired
-    private ConversationParticipantRepository conversationParticipantRepository;
-
-    @Autowired
-    private MessageRepository messageRepository;
-
-    @Autowired
-    private UserRepository userRepository;
-
-    @Autowired
-    private ChatWebSocketService chatWebSocketService;
-
-    @Autowired
-    private RedisTemplate<String, Object> redisTemplate;
+    private static final Logger log = LoggerFactory.getLogger(ChatService.class);
 
     private static final int CACHE_MESSAGE_LIMIT = 30;
 
-    /**
-     * 获取用户的所有会话列表
-     */
+    private final ConversationRepository conversationRepository;
+    private final ConversationParticipantRepository conversationParticipantRepository;
+    private final MessageRepository messageRepository;
+    private final UserRepository userRepository;
+    private final ChatWebSocketService chatWebSocketService;
+    private final RedisTemplate<String, Object> redisTemplate;
+
+    public ChatService(ConversationRepository conversationRepository,
+                       ConversationParticipantRepository conversationParticipantRepository,
+                       MessageRepository messageRepository,
+                       UserRepository userRepository,
+                       ChatWebSocketService chatWebSocketService,
+                       RedisTemplate<String, Object> redisTemplate) {
+        this.conversationRepository = conversationRepository;
+        this.conversationParticipantRepository = conversationParticipantRepository;
+        this.messageRepository = messageRepository;
+        this.userRepository = userRepository;
+        this.chatWebSocketService = chatWebSocketService;
+        this.redisTemplate = redisTemplate;
+    }
+
+    // ── Conversation ──────────────────────────────────────────────────────
+
     @Transactional(readOnly = true)
     public List<ConversationResponse> getUserConversations(Long userId) {
-        logger.info("获取用户会话列表: userId={}", userId);
+        log.info("getUserConversations: userId={}", userId);
         List<Conversation> conversations = conversationRepository.findByUserId(userId);
-        logger.info("找到 {} 个会话", conversations.size());
-        List<ConversationResponse> responses = new ArrayList<>();
-
-        for (Conversation conversation : conversations) {
-            logger.info("处理会话: conversationId={}", conversation.getId());
-            // 获取会话的另一方用户信息
-            Long otherUserId = getOtherParticipantId(conversation, userId);
-            logger.info("会话的另一方用户ID: {}", otherUserId);
-
-            if (otherUserId != null) {
-                Optional<User> otherUser = userRepository.findById(otherUserId);
-                logger.info("用户查询结果: {}", otherUser.isPresent());
-
-                if (otherUser.isPresent()) {
-                    User user = otherUser.get();
-
-                    // 获取最后一条消息
-                    Message lastMessage = getLastMessage(conversation.getId());
-                    logger.info("最后一条消息: {}", lastMessage != null ? lastMessage.getId() : "null");
-
-                    // 获取未读消息数
-                    Integer unreadCount = getUnreadCount(conversation.getId(), userId);
-                    logger.info("未读消息数: {}", unreadCount);
-
-                    responses.add(new ConversationResponse(
-                        conversation,
-                        lastMessage,
-                        unreadCount,
-                        user.getName(),
-                        user.getAvatar(),
-                        false // TODO: 实现在线状态
-                    ));
-                    logger.info("成功添加会话响应");
-                } else {
-                    logger.warn("用户不存在: userId={}", otherUserId);
-                }
-            } else {
-                logger.warn("无法找到会话的另一方用户: conversationId={}, currentUserId={}", conversation.getId(), userId);
-            }
+        if (conversations.isEmpty()) {
+            return Collections.emptyList();
         }
 
-        logger.info("返回 {} 个会话响应", responses.size());
+        // Batch-fetch other participants' user ids
+        List<Long> conversationIds = conversations.stream()
+                .map(Conversation::getId).collect(Collectors.toList());
+        Map<Long, Long> convToOtherUser = resolveOtherParticipantsBatch(conversationIds, userId);
+
+        // Batch-fetch User entities for the other participants
+        Set<Long> otherUserIds = Set.copyOf(convToOtherUser.values());
+        Map<Long, User> userMap = userRepository.findAllById(otherUserIds).stream()
+                .collect(Collectors.toMap(User::getId, Function.identity()));
+
+        List<ConversationResponse> responses = new ArrayList<>();
+        for (Conversation conv : conversations) {
+            Long otherUserId = convToOtherUser.get(conv.getId());
+            if (otherUserId == null) {
+                log.warn("No other participant found for conversation={}", conv.getId());
+                continue;
+            }
+            User otherUser = userMap.get(otherUserId);
+            if (otherUser == null) {
+                log.warn("User not found: userId={}", otherUserId);
+                continue;
+            }
+            Message lastMessage = getLastMessage(conv.getId());
+            Integer unreadCount = getUnreadCount(conv.getId(), userId);
+
+            responses.add(new ConversationResponse(
+                    conv, lastMessage, unreadCount,
+                    otherUser.getName(), otherUser.getAvatar(), false));
+        }
+        log.info("Returning {} conversations for userId={}", responses.size(), userId);
         return responses;
     }
 
-    /**
-     * 创建或获取私聊会话
-     */
     @Transactional
     public Conversation createOrGetPrivateConversation(Long currentUserId, Long targetUserId) {
         ensureUserCanInteract(currentUserId);
-        logger.info("开始创建或获取私聊会话: currentUserId={}, targetUserId={}", currentUserId, targetUserId);
+        log.info("createOrGetPrivateConversation: currentUserId={}, targetUserId={}", currentUserId, targetUserId);
 
-        // 检查是否已存在私聊会话
-        Optional<Conversation> existingConversation = conversationRepository
+        Optional<Conversation> existing = conversationRepository
                 .findPrivateConversationBetweenUsers(currentUserId, targetUserId);
-
-        if (existingConversation.isPresent()) {
-            logger.info("找到已存在的会话: {}", existingConversation.get().getId());
-            return existingConversation.get();
+        if (existing.isPresent()) {
+            return existing.get();
         }
 
-        logger.info("创建新的私聊会话");
-        // 创建新的私聊会话
         Conversation conversation = new Conversation();
         conversation.setType(ConversationType.PRIVATE);
-        conversation.setCreatedAt(LocalDateTime.now());
-        conversation.setUpdatedAt(LocalDateTime.now());
         conversation = conversationRepository.save(conversation);
-        logger.info("新会话创建成功: {}", conversation.getId());
 
-        // 添加参与者
         addParticipant(conversation, currentUserId);
         addParticipant(conversation, targetUserId);
-        logger.info("参与者添加完成");
-
         return conversation;
     }
 
-    /**
-     * 获取会话消息
-     */
+    // ── Messages ──────────────────────────────────────────────────────────
+
     @Transactional
     public Page<MessageResponse> getConversationMessages(Long conversationId, Long userId, int page, int size) {
-        // 验证用户是否在会话中
         if (!conversationParticipantRepository.existsByConversationIdAndUserId(conversationId, userId)) {
-            // 返回空页面而不是抛出异常
             return Page.empty();
         }
-
-        // 标记为已读
         markAsRead(conversationId, userId);
 
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<Message> messages = messageRepository.findByConversationIdOrderByCreatedAtDesc(conversationId, pageable);
 
-        return messages.map(message -> {
-            MessageResponse response = new MessageResponse(message);
+        // Batch-fetch sender info to avoid N+1
+        Set<Long> senderIds = messages.getContent().stream()
+                .map(Message::getSenderId).collect(Collectors.toSet());
+        Map<Long, User> userMap = userRepository.findAllById(senderIds).stream()
+                .collect(Collectors.toMap(User::getId, Function.identity()));
 
-            // 设置发送者信息
-            Optional<User> sender = userRepository.findById(message.getSenderId());
-            if (sender.isPresent()) {
-                User user = sender.get();
-                response.setSenderName(user.getName());
-                response.setSenderAvatar(user.getAvatar());
-            }
-
-            // 设置是否是自己发送的消息
-            response.setIsMe(message.getSenderId().equals(userId));
-
-            return response;
-        });
+        return messages.map(msg -> toMessageResponse(msg, userId, userMap));
     }
 
     /**
-     * 发送消息
+     * Send a plain message (no media).
      */
     @Transactional
     public Message sendMessage(Long conversationId, Long senderId, String content, MessageType type,
-                              String fileUrl, String fileName, Long fileSize) {
-        ensureUserCanInteract(senderId);
-        // 验证用户是否在会话中
-        if (!conversationParticipantRepository.existsByConversationIdAndUserId(conversationId, senderId)) {
-            return null;
-        }
-
-        Optional<Conversation> conversationOpt = conversationRepository.findById(conversationId);
-        if (conversationOpt.isEmpty()) {
-            return null;
-        }
-
+                               String fileUrl, String fileName, Long fileSize) {
         Message message = new Message();
-        message.setConversation(conversationOpt.get());
-        message.setSenderId(senderId);
         message.setContent(content);
         message.setType(type);
         message.setFileUrl(fileUrl);
         message.setFileName(fileName);
         message.setFileSize(fileSize);
-        message.setCreatedAt(LocalDateTime.now());
-
-        Message savedMessage = messageRepository.save(message);
-
-        // 保存到 Redis 缓存
-        saveMessageToRedis(conversationId, savedMessage);
-
-        // 更新会话的更新时间
-        Conversation conversation = conversationOpt.get();
-        conversation.setUpdatedAt(LocalDateTime.now());
-        conversationRepository.save(conversation);
-
-        // 推送实时消息给会话参与者
-        pushRealTimeMessage(conversationId, savedMessage);
-
-        return savedMessage;
+        return doSendMessage(conversationId, senderId, message);
     }
 
     /**
-     * 发送带媒体文件的消息
+     * Send a message with media URLs.
      */
     @Transactional
     public Message sendMessageWithMedia(Long conversationId, Long senderId, String content,
-                                       MessageType type, List<String> mediaUrls, String fileName, Long fileSize) {
-        ensureUserCanInteract(senderId);
-        if (!conversationParticipantRepository.existsByConversationIdAndUserId(conversationId, senderId)) {
-            return null;
-        }
-
-        Optional<Conversation> conversationOpt = conversationRepository.findById(conversationId);
-        if (conversationOpt.isEmpty()) {
-            return null;
-        }
-
+                                        MessageType type, List<String> mediaUrls, String fileName, Long fileSize) {
         Message message = new Message();
-        message.setConversation(conversationOpt.get());
-        message.setSenderId(senderId);
         message.setContent(content);
         message.setType(type);
         message.setMediaUrls(mediaUrls != null ? mediaUrls : new ArrayList<>());
-
-        // 设置文件元数据
         if (mediaUrls != null && !mediaUrls.isEmpty()) {
             message.setFileUrl(mediaUrls.get(0));
         }
         message.setFileName(fileName);
         message.setFileSize(fileSize);
-
-        message.setCreatedAt(LocalDateTime.now());
-
-        Message savedMessage = messageRepository.save(message);
-
-        // 保存到 Redis 缓存
-        saveMessageToRedis(conversationId, savedMessage);
-
-        // 更新会话的更新时间
-        Conversation conversation = conversationOpt.get();
-        conversation.setUpdatedAt(LocalDateTime.now());
-        conversationRepository.save(conversation);
-
-        // 推送实时消息给会话参与者
-        pushRealTimeMessage(conversationId, savedMessage);
-
-        return savedMessage;
+        return doSendMessage(conversationId, senderId, message);
     }
 
     /**
-     * 标记会话为已读
+     * Common kernel: validate, persist, cache, update timestamp, push.
      */
+    private Message doSendMessage(Long conversationId, Long senderId, Message message) {
+        ensureUserCanInteract(senderId);
+
+        if (!conversationParticipantRepository.existsByConversationIdAndUserId(conversationId, senderId)) {
+            log.warn("User {} not a participant of conversation {}", senderId, conversationId);
+            return null;
+        }
+
+        Conversation conversation = conversationRepository.findById(conversationId).orElse(null);
+        if (conversation == null) {
+            log.warn("Conversation {} not found", conversationId);
+            return null;
+        }
+
+        message.setConversation(conversation);
+        message.setSenderId(senderId);
+        message.setCreatedAt(LocalDateTime.now());
+
+        Message saved = messageRepository.save(message);
+
+        saveMessageToRedis(conversationId, saved);
+
+        conversation.setUpdatedAt(LocalDateTime.now());
+        conversationRepository.save(conversation);
+
+        pushRealTimeMessage(conversationId, saved);
+
+        return saved;
+    }
+
     @Transactional
     public void markAsRead(Long conversationId, Long userId) {
         conversationParticipantRepository.updateLastReadAt(conversationId, userId, LocalDateTime.now());
     }
 
-    private Long getOtherParticipantId(Conversation conversation, Long currentUserId) {
-        List<ConversationParticipant> participants = conversationParticipantRepository
-                .findByConversationId(conversation.getId());
-        logger.info("会话参与者数量: {}", participants.size());
+    // ── Latest messages (Redis-first) ─────────────────────────────────────
 
-        for (ConversationParticipant participant : participants) {
-            logger.info("参与者: userId={}, currentUserId={}", participant.getUserId(), currentUserId);
+    @Transactional(readOnly = true)
+    public List<MessageResponse> getLatestMessages(Long conversationId, Long userId, int limit) {
+        if (!conversationParticipantRepository.existsByConversationIdAndUserId(conversationId, userId)) {
+            return Collections.emptyList();
         }
 
-        Long otherUserId = participants.stream()
-                .map(ConversationParticipant::getUserId)
-                .filter(userId -> userId != null && !userId.equals(currentUserId))
-                .findFirst()
-                .orElse(null); // 返回null而不是抛出异常
+        try {
+            String key = RedisKeys.conversationMessages(conversationId);
+            List<Object> cached = redisTemplate.opsForList().range(key, -limit, -1);
+            if (cached != null && !cached.isEmpty()) {
+                log.debug("Redis hit for conversation={}, count={}", conversationId, cached.size());
+                List<Message> messages = cached.stream()
+                        .filter(obj -> obj instanceof Message)
+                        .map(obj -> (Message) obj)
+                        .collect(Collectors.toList());
+                return buildMessageResponses(messages, userId);
+            }
+        } catch (Exception e) {
+            log.error("Failed to read messages from Redis for conversation={}: {}", conversationId, e.getMessage());
+        }
 
-        logger.info("找到的另一方用户ID: {}", otherUserId);
-        return otherUserId;
+        return loadFromMySQLAndCache(conversationId, userId, limit);
+    }
+
+    // ── Private helpers ───────────────────────────────────────────────────
+
+    private List<MessageResponse> loadFromMySQLAndCache(Long conversationId, Long userId, int limit) {
+        log.debug("Loading messages from MySQL for conversation={}", conversationId);
+        Pageable pageable = PageRequest.of(0, limit, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<Message> page = messageRepository.findByConversationIdOrderByCreatedAtDesc(conversationId, pageable);
+        List<Message> messageList = page.getContent();
+
+        if (!messageList.isEmpty()) {
+            try {
+                String key = RedisKeys.conversationMessages(conversationId);
+                redisTemplate.delete(key);
+                for (int i = messageList.size() - 1; i >= 0; i--) {
+                    redisTemplate.opsForList().rightPush(key, messageList.get(i));
+                }
+            } catch (Exception e) {
+                log.error("Failed to cache messages to Redis for conversation={}: {}", conversationId, e.getMessage());
+            }
+        }
+
+        return buildMessageResponses(messageList, userId);
+    }
+
+    /**
+     * Build MessageResponse list with a single batch user lookup.
+     */
+    private List<MessageResponse> buildMessageResponses(List<Message> messages, Long userId) {
+        if (messages.isEmpty()) return Collections.emptyList();
+        Set<Long> senderIds = messages.stream().map(Message::getSenderId).collect(Collectors.toSet());
+        Map<Long, User> userMap = userRepository.findAllById(senderIds).stream()
+                .collect(Collectors.toMap(User::getId, Function.identity()));
+        return messages.stream()
+                .map(msg -> toMessageResponse(msg, userId, userMap))
+                .collect(Collectors.toList());
+    }
+
+    private static MessageResponse toMessageResponse(Message message, Long currentUserId, Map<Long, User> userMap) {
+        MessageResponse resp = new MessageResponse(message);
+        User sender = userMap.get(message.getSenderId());
+        if (sender != null) {
+            resp.setSenderName(sender.getName());
+            resp.setSenderAvatar(sender.getAvatar());
+        }
+        resp.setIsMe(message.getSenderId().equals(currentUserId));
+        return resp;
+    }
+
+    private void pushRealTimeMessage(Long conversationId, Message message) {
+        try {
+            List<ConversationParticipant> participants = conversationParticipantRepository
+                    .findByConversationId(conversationId);
+            Long[] participantIds = participants.stream()
+                    .map(ConversationParticipant::getUserId)
+                    .toArray(Long[]::new);
+
+            MessageResponse resp = new MessageResponse(message);
+            // Fetch sender info for the push payload
+            userRepository.findById(message.getSenderId()).ifPresent(user -> {
+                resp.setSenderName(user.getName());
+                resp.setSenderAvatar(user.getAvatar());
+            });
+            resp.setIsMe(false);
+
+            chatWebSocketService.sendNewMessage(conversationId, resp, participantIds);
+        } catch (Exception e) {
+            log.error("WebSocket push failed for conversation={}, message={}: {}",
+                    conversationId, message.getId(), e.getMessage(), e);
+        }
+    }
+
+    private void saveMessageToRedis(Long conversationId, Message message) {
+        try {
+            String key = RedisKeys.conversationMessages(conversationId);
+            redisTemplate.opsForList().rightPush(key, message);
+            redisTemplate.opsForList().trim(key, -CACHE_MESSAGE_LIMIT, -1);
+        } catch (Exception e) {
+            log.error("Failed to save message to Redis: conversationId={}, error={}",
+                    conversationId, e.getMessage());
+        }
     }
 
     private Message getLastMessage(Long conversationId) {
@@ -302,148 +332,56 @@ public class ChatService {
         ConversationParticipant participant = new ConversationParticipant();
         participant.setConversation(conversation);
         participant.setUserId(userId);
-        participant.setJoinedAt(LocalDateTime.now()); // Explicitly set joinedAt
+        participant.setJoinedAt(LocalDateTime.now());
         conversationParticipantRepository.save(participant);
     }
 
     /**
-     * 推送实时消息给会话参与者
+     * Batch resolve: for each conversation, find the other participant's user id.
      */
-    private void pushRealTimeMessage(Long conversationId, Message message) {
-        try {
-            // 获取会话的所有参与者
-            List<ConversationParticipant> participants = conversationParticipantRepository
-                    .findByConversationId(conversationId);
-
-            // 提取参与者ID
-            Long[] participantIds = participants.stream()
-                    .map(ConversationParticipant::getUserId)
-                    .toArray(Long[]::new);
-
-            // 构建消息响应
-            MessageResponse messageResponse = new MessageResponse(message);
-            Optional<User> sender = userRepository.findById(message.getSenderId());
-            if (sender.isPresent()) {
-                User user = sender.get();
-                messageResponse.setSenderName(user.getName());
-                messageResponse.setSenderAvatar(user.getAvatar());
-            }
-            messageResponse.setIsMe(false); // 对于接收者来说，这不是自己发送的消息
-
-            // 通过WebSocket推送消息
-            chatWebSocketService.sendNewMessage(conversationId, messageResponse, participantIds);
-        } catch (Exception e) {
-            // WebSocket推送失败不影响消息发送，只记录错误
-            e.printStackTrace();
-        }
+    private Map<Long, Long> resolveOtherParticipantsBatch(List<Long> conversationIds, Long currentUserId) {
+        // Load all participants for these conversations in one round-trip would
+        // require a new repository method.  For now we do it per conversation
+        // but each is a single query — reasonable for typical conversation counts.
+        return conversationIds.stream()
+                .collect(Collectors.toMap(
+                        Function.identity(),
+                        convId -> getOtherParticipantIdByConvId(convId, currentUserId)));
     }
 
-
-    /**
-     * 保存消息到 Redis 缓存
-     */
-    private void saveMessageToRedis(Long conversationId, Message message) {
-        try {
-            String key = RedisKeys.conversationMessages(conversationId);
-            redisTemplate.opsForList().rightPush(key, message);
-            redisTemplate.opsForList().trim(key, -CACHE_MESSAGE_LIMIT, -1);
-        } catch (Exception e) {
-            logger.error("保存消息到 Redis 失败: conversationId={}, error={}", conversationId, e.getMessage());
-        }
+    private Long getOtherParticipantIdByConvId(Long conversationId, Long currentUserId) {
+        List<ConversationParticipant> participants = conversationParticipantRepository
+                .findByConversationId(conversationId);
+        return participants.stream()
+                .map(ConversationParticipant::getUserId)
+                .filter(uid -> uid != null && !uid.equals(currentUserId))
+                .findFirst()
+                .orElse(null);
     }
 
-    /**
-     * 获取最新消息（优先从 Redis）
-     */
-    @Transactional(readOnly = true)
-    public List<MessageResponse> getLatestMessages(Long conversationId, Long userId, int limit) {
-        // 验证用户权限
-        if (!conversationParticipantRepository.existsByConversationIdAndUserId(conversationId, userId)) {
-            return new ArrayList<>();
-        }
+    // ── Guard ─────────────────────────────────────────────────────────────
 
-        try {
-            String key = RedisKeys.conversationMessages(conversationId);
-            List<Object> cachedMessages = redisTemplate.opsForList().range(key, -limit, -1);
-
-            if (cachedMessages != null && !cachedMessages.isEmpty()) {
-                logger.info("从 Redis 获取消息: conversationId={}, count={}", conversationId, cachedMessages.size());
-                return cachedMessages.stream()
-                    .filter(obj -> obj instanceof Message)
-                    .map(obj -> (Message) obj)
-                    .map(msg -> buildMessageResponse(msg, userId))
-                    .collect(Collectors.toList());
-            }
-        } catch (Exception e) {
-            logger.error("从 Redis 读取消息失败: conversationId={}, error={}", conversationId, e.getMessage());
-        }
-
-        // Redis 未命中，从 MySQL 加载并缓存
-        return loadFromMySQLAndCache(conversationId, userId, limit);
-    }
-
-    /**
-     * 从 MySQL 加载消息并写入 Redis
-     */
-    private List<MessageResponse> loadFromMySQLAndCache(Long conversationId, Long userId, int limit) {
-        logger.info("从 MySQL 加载消息: conversationId={}", conversationId);
-
-        Pageable pageable = PageRequest.of(0, limit, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<Message> messages = messageRepository.findByConversationIdOrderByCreatedAtDesc(conversationId, pageable);
-
-        List<Message> messageList = messages.getContent();
-
-        // 写入 Redis（按时间升序）
-        if (!messageList.isEmpty()) {
-            try {
-                String key = RedisKeys.conversationMessages(conversationId);
-                redisTemplate.delete(key);
-                for (int i = messageList.size() - 1; i >= 0; i--) {
-                    redisTemplate.opsForList().rightPush(key, messageList.get(i));
-                }
-            } catch (Exception e) {
-                logger.error("缓存消息到 Redis 失败: conversationId={}, error={}", conversationId, e.getMessage());
-            }
-        }
-
-        return messageList.stream()
-            .map(msg -> buildMessageResponse(msg, userId))
-            .collect(Collectors.toList());
-    }
-
-    /**
-     * 构建消息响应
-     */
-    private MessageResponse buildMessageResponse(Message message, Long userId) {
-        MessageResponse response = new MessageResponse(message);
-        Optional<User> sender = userRepository.findById(message.getSenderId());
-        if (sender.isPresent()) {
-            User user = sender.get();
-            response.setSenderName(user.getName());
-            response.setSenderAvatar(user.getAvatar());
-        }
-        response.setIsMe(message.getSenderId().equals(userId));
-        return response;
-    }
-    
     private void ensureUserCanInteract(Long userId) {
         if (userId == null) {
             throw new IllegalArgumentException("未认证用户无法执行此操作");
         }
-        Optional<User> userOpt = userRepository.findById(userId);
-        if (userOpt.isEmpty()) {
-            throw new IllegalArgumentException("用户不存在");
-        }
-        User user = userOpt.get();
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("用户不存在"));
+
         if (user.getStatus() == UserStatus.BANNED) {
             throw new IllegalArgumentException("账号已被封禁，无法发送私信");
         }
         if (user.getStatus() == UserStatus.MUTE) {
-            java.time.Instant muteUntil = user.getMuteUntil();
-            if (muteUntil == null || java.time.Instant.now().isBefore(muteUntil)) {
-                throw new IllegalArgumentException("账号被禁言中，暂时无法发送私信");
+            Instant muteUntil = user.getMuteUntil();
+            if (muteUntil != null && Instant.now().isAfter(muteUntil)) {
+                // Mute has expired — auto-restore to NORMAL
+                log.info("Mute expired for userId={}, restoring to NORMAL", userId);
+                user.setStatus(UserStatus.NORMAL);
+                user.setMuteUntil(null);
+                userRepository.save(user);
+                return;
             }
+            throw new IllegalArgumentException("账号被禁言中，暂时无法发送私信");
         }
-
     }
 }

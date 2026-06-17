@@ -1,202 +1,93 @@
 package com.example.paperhub.websocket;
 
 import com.example.paperhub.comment.dto.CommentDtos;
+import com.example.paperhub.websocket.message.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
-import java.util.HashMap;
 
 /**
- * WebSocket服务类
- * 用于向客户端推送实时消息
+ * WebSocket service — central entry point for server-to-client push.
+ * <p>
+ * Other modules (P3 post, P4 notification/interaction, P6 admin) call the
+ * {@code pushTo*()} methods exposed here.  Do NOT add new inner message
+ * classes — put them in {@code websocket/message/} as independent POJOs.
+ * </p>
  */
 @Service
 public class WebSocketService {
+
+    private static final Logger log = LoggerFactory.getLogger(WebSocketService.class);
+
     private final SimpleWebSocketHandler webSocketHandler;
 
     public WebSocketService(SimpleWebSocketHandler webSocketHandler) {
         this.webSocketHandler = webSocketHandler;
     }
 
-    /**
-     * 推送帖子点赞更新
-     */
-    public void sendPostLikeUpdate(Long postId, int likesCount, boolean isLiked) {
-        LikeUpdateMessage message = new LikeUpdateMessage("like_update", likesCount, isLiked, null, null);
+    // ── Public push API (for P3/P4/P6) ────────────────────────────────────
+
+    /** Push an arbitrary object to all sessions watching a given post. */
+    public void pushToPost(Long postId, Object message) {
         webSocketHandler.sendToPost(postId, message);
     }
 
-    /**
-     * 推送帖子收藏更新
-     */
-    public void sendPostFavoriteUpdate(Long postId, int favoriteCount, boolean isSaved) {
-        FavoriteUpdateMessage message = new FavoriteUpdateMessage("favorite_update", favoriteCount, isSaved);
-        webSocketHandler.sendToPost(postId, message);
-    }
-
-    /**
-     * 推送评论点赞更新
-     */
-    public void sendCommentLikeUpdate(Long postId, String commentId, int likesCount, boolean isLiked) {
-        CommentLikeUpdateMessage message = new CommentLikeUpdateMessage("comment_like_update", commentId, likesCount, isLiked);
-        webSocketHandler.sendToPost(postId, message);
-    }
-
-    /**
-     * 推送新评论
-     */
-    public void sendCommentCreated(Long postId, CommentDtos.CommentResp comment) {
-        CommentCreatedMessage message = new CommentCreatedMessage("comment_created", comment);
-        webSocketHandler.sendToPost(postId, message);
-    }
-
-    /**
-     * 推送评论更新
-     */
-    public void sendCommentUpdated(Long postId, CommentDtos.CommentResp comment) {
-        CommentUpdatedMessage message = new CommentUpdatedMessage("comment_updated", comment);
-        webSocketHandler.sendToPost(postId, message);
-    }
-
-    /**
-     * 推送评论删除
-     */
-    public void sendCommentDeleted(Long postId, String commentId) {
-        CommentDeletedMessage message = new CommentDeletedMessage("comment_deleted", commentId);
-        webSocketHandler.sendToPost(postId, message);
-    }
-
-    // 消息类定义
-    public static class LikeUpdateMessage {
-        public String type;
-        public int likesCount;
-        public boolean isLiked;
-        public String commentId;
-        public Integer commentLikesCount;
-
-        public LikeUpdateMessage(String type, int likesCount, boolean isLiked, String commentId, Integer commentLikesCount) {
-            this.type = type;
-            this.likesCount = likesCount;
-            this.isLiked = isLiked;
-            this.commentId = commentId;
-            this.commentLikesCount = commentLikesCount;
-        }
-    }
-
-    public static class CommentLikeUpdateMessage {
-        public String type;
-        public String commentId;
-        public int likesCount;
-        public boolean isLiked;
-
-        public CommentLikeUpdateMessage(String type, String commentId, int likesCount, boolean isLiked) {
-            this.type = type;
-            this.commentId = commentId;
-            this.likesCount = likesCount;
-            this.isLiked = isLiked;
-        }
-    }
-
-    public static class CommentCreatedMessage {
-        public String type;
-        public CommentDtos.CommentResp comment;
-
-        public CommentCreatedMessage(String type, CommentDtos.CommentResp comment) {
-            this.type = type;
-            this.comment = comment;
-        }
-    }
-
-    public static class CommentUpdatedMessage {
-        public String type;
-        public CommentDtos.CommentResp comment;
-
-        public CommentUpdatedMessage(String type, CommentDtos.CommentResp comment) {
-            this.type = type;
-            this.comment = comment;
-        }
-    }
-
-    public static class CommentDeletedMessage {
-        public String type;
-        public String commentId;
-
-        public CommentDeletedMessage(String type, String commentId) {
-            this.type = type;
-            this.commentId = commentId;
-        }
-    }
-
-    /**
-     * 推送帖子状态更新（给管理员）
-     */
-    public void sendPostStatusUpdate(Long postId, String status, String title) {
-        PostStatusUpdateMessage message = new PostStatusUpdateMessage("post_status_update", postId, status, title);
+    /** Push an arbitrary object to all admin sessions. */
+    public void pushToAdmins(Object message) {
         webSocketHandler.sendToAdmins(message);
     }
 
-    public static class PostStatusUpdateMessage {
-        public String type;
-        public Long postId;
-        public String status;
-        public String title;
-
-        public PostStatusUpdateMessage(String type, Long postId, String status, String title) {
-            this.type = type;
-            this.postId = postId;
-            this.status = status;
-            this.title = title;
-        }
+    /** Push an arbitrary object to all sessions of a given user. */
+    public void pushToUser(Long userId, Object message) {
+        webSocketHandler.sendToUser(userId, message);
     }
 
-    public static class FavoriteUpdateMessage {
-        public String type;
-        public int favoriteCount;
-        public boolean isSaved;
+    // ── Convenience methods (keep existing call sites working) ────────────
 
-        public FavoriteUpdateMessage(String type, int favoriteCount, boolean isSaved) {
-            this.type = type;
-            this.favoriteCount = favoriteCount;
-            this.isSaved = isSaved;
-        }
+    /** Push a post like-count update. */
+    public void sendPostLikeUpdate(Long postId, int likesCount, boolean isLiked) {
+        pushToPost(postId, new LikeUpdateMessage("like_update", likesCount, isLiked, null, null));
     }
 
-    /**
-     * 推送新通知给用户
-     */
+    /** Push a post favourite-count update. */
+    public void sendPostFavoriteUpdate(Long postId, int favoriteCount, boolean isSaved) {
+        pushToPost(postId, new FavoriteUpdateMessage("favorite_update", favoriteCount, isSaved));
+    }
+
+    /** Push a comment like-count update. */
+    public void sendCommentLikeUpdate(Long postId, String commentId, int likesCount, boolean isLiked) {
+        pushToPost(postId, new CommentLikeUpdateMessage("comment_like_update", commentId, likesCount, isLiked));
+    }
+
+    /** Push a newly-created comment. */
+    public void sendCommentCreated(Long postId, CommentDtos.CommentResp comment) {
+        pushToPost(postId, new CommentCreatedMessage("comment_created", comment));
+    }
+
+    /** Push an updated comment. */
+    public void sendCommentUpdated(Long postId, CommentDtos.CommentResp comment) {
+        pushToPost(postId, new CommentUpdatedMessage("comment_updated", comment));
+    }
+
+    /** Push a deleted comment id. */
+    public void sendCommentDeleted(Long postId, String commentId) {
+        pushToPost(postId, new CommentDeletedMessage("comment_deleted", commentId));
+    }
+
+    /** Push a post status change (admin broadcast). */
+    public void sendPostStatusUpdate(Long postId, String status, String title) {
+        pushToAdmins(new PostStatusUpdateMessage("post_status_update", postId, status, title));
+    }
+
+    /** Push a new notification to a user. */
     public void sendNewNotification(Long userId, String notificationType, Map<String, Object> data) {
-        NotificationMessage message = new NotificationMessage("new_notification", notificationType, data);
-        webSocketHandler.sendToUser(userId, message);
+        pushToUser(userId, new NotificationMessage("new_notification", notificationType, data));
     }
 
-    /**
-     * 推送未读数量更新给用户
-     */
+    /** Push unread-count summary to a user. */
     public void sendUnreadCountUpdate(Long userId, Map<String, Integer> unreadCounts) {
-        UnreadCountUpdateMessage message = new UnreadCountUpdateMessage("unread_count_update", unreadCounts);
-        webSocketHandler.sendToUser(userId, message);
-    }
-
-    public static class NotificationMessage {
-        public String type;
-        public String notificationType;
-        public Map<String, Object> data;
-
-        public NotificationMessage(String type, String notificationType, Map<String, Object> data) {
-            this.type = type;
-            this.notificationType = notificationType;
-            this.data = data;
-        }
-    }
-
-    public static class UnreadCountUpdateMessage {
-        public String type;
-        public Map<String, Integer> unreadCounts;
-
-        public UnreadCountUpdateMessage(String type, Map<String, Integer> unreadCounts) {
-            this.type = type;
-            this.unreadCounts = unreadCounts;
-        }
+        pushToUser(userId, new UnreadCountUpdateMessage("unread_count_update", unreadCounts));
     }
 }
-
