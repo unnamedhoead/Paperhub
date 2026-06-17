@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:test/models/user_summary.dart';
-import 'package:test/screens/follow_controller.dart';
+import 'package:test/screens/follow/follow_controller.dart';
 
 void main() {
   group('FollowController', () {
