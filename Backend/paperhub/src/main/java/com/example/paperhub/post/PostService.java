@@ -11,7 +11,7 @@ import com.example.paperhub.like.PostLikeRepository;
 import com.example.paperhub.notification.NotificationRepository;
 import com.example.paperhub.report.ReportPost;
 import com.example.paperhub.report.ReportPostRepository;
-import com.example.paperhub.report.ReportStatus;
+import com.example.paperhub.admin.ReportStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;

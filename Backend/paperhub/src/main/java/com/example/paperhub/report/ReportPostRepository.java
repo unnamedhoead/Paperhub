@@ -1,5 +1,6 @@
 package com.example.paperhub.report;
 
+import com.example.paperhub.admin.ReportStatus;
 import com.example.paperhub.post.Post;
 import com.example.paperhub.auth.User;
 import org.springframework.data.domain.Page;
