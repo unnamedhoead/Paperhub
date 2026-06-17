@@ -37,3 +37,9 @@
 ## Iteration ~14 — 2026-06-18
 - 合并 P2-chat: chat_screen 610→287 + screens/chat/(4) + share_bubble 483→186 + chat_service test(10). analyze 0.
 - P2 已合 3/5 (admin/interaction/chat)。剩 profile/discovery。
+
+## Iteration ~22 — 2026-06-18
+- profile agent 完成(1 commit 完整拆分, 拆后挂起)，已合并: profile_screen 607→~130 + 5 widget。
+- discovery agent stall(0 commit, 14min 无输出，big-file 一次吞 home+search 过载)，force 清理 worktree。
+- 重新委托 2 个更小 agent: home(adc023) + search(a90d23)，强化防 stall(逐组件 commit/禁大脚本)。
+- P2 已合 4/5 (admin/interaction/chat/profile)。等 home/search 重跑。
