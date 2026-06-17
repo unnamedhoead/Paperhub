@@ -6,7 +6,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../models/post_model.dart';
 import '../models/user_profile.dart';
-import 'admin_mode_screen.dart';
+import 'admin/admin_screen.dart';
 import '../models/user_summary.dart';
 import 'auth/login_page.dart';
 import '../pages/note_editor_page.dart';
@@ -949,7 +949,7 @@ class _ProfilePageState extends State<ProfilePage>
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => AdminModeScreen(role: _profile!.role),
+                    builder: (_) => AdminScreen(role: _profile!.role),
                   ),
                 );
               },
