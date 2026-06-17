@@ -10,8 +10,8 @@
 
 | # | 任务 | 原报告引用 | 负责 | 当前状态 |
 |---|---|---|---|---|
-| S1 | `anyRequest().permitAll()` 收紧为 `authenticated()` | §3.3 A2, §4.1 | P1 | ⚠️ 仅 /admin 受保护，其余全开放 |
-| S2 | CORS `allowedOrigins` 默认改白名单 | §2.3 R5, §3.3 A4 | P1 | ⚠️ 已可配但默认 `*` |
+| S1 | `anyRequest().permitAll()` 收紧为 `authenticated()` | §3.3 A2, §4.1 | Opus | ✅ **已做** (commit f7e90b8)：默认拒绝匿名 + 公开GET保留 + 写操作/私有域要登录 + 11 测试矩阵 |
+| S2 | CORS `allowedOrigins` 默认改白名单 | §2.3 R5, §3.3 A4 | — | ✅ 机制就位：`${app.cors.allowed-origins}` 可配白名单 + `allowCredentials=false`(`*` 无凭证泄露)。部署设环境变量即可，非代码缺口 |
 
 ---
 
@@ -19,7 +19,7 @@
 
 | # | 任务 | 原报告引用 | 负责 | 当前状态 |
 |---|---|---|---|---|
-| I1 | ObsConfig endpoint 从硬编码改为 `@Value` | §4.1 | P1 | ❌ 未做 |
+| I1 | ObsConfig endpoint 从硬编码改为 `@Value` | §4.1 | P1 | ✅ **已做(Wave1已完成,原清单误判)**：`@Value("${huawei.obs.endpoint}")`，ak/sk 无默认值从环境注入 |
 | I2 | `app_env.dart` 集中所有 base URL | §4.1 | P1 | ⚠️ arxiv 代理地址已改，其余未集中 |
 | I3 | `services/mock_api_service.dart` 删除或迁 `services/mock/` | §3.6 C8 | P1 | ❌ 未做 |
 | I4 | 前端状态管理统一接入 (ChangeNotifier → Provider tree) | §3.3 A5, §4.1 | P1 | ⚠️ 约定文档已写，未接入 |
@@ -118,10 +118,12 @@
 
 ## 汇总统计
 
+> **Opus 接手后更新 (2026-06-18)**：🔴 安全 S1 已完成(commit f7e90b8, 235 tests)、S2 机制就位；I1 经核实 Wave1 已完成(原清单误判)。下表为最新。
+
 | 分类 | 总数 | ✅ 完成 | ⚠️ 部分 | ❌ 未做 |
 |---|---|---|---|---|
-| 🔴 安全 | 2 | 0 | 2 | 0 |
-| 🟡 基础设施 | 6 | 0 | 3 | 3 |
+| 🔴 安全 | 2 | 2 | 0 | 0 |
+| 🟡 基础设施 | 6 | 1 | 2 | 3 |
 | 🟡 上帝文件 | 10 | 0 | 10 | 0 |
 | 🟡 架构改进 | 4 | 0 | 0 | 4 |
 | 🟡 设计/算法/规范 | 10 | 0 | 6 | 4 |
