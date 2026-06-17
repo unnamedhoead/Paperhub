@@ -9,11 +9,6 @@ import '../services/local_storage.dart';
 import '../services/browse_history_service.dart';
 import 'profile_screen.dart';
 import 'search_results_screen.dart';
-import '../services/chat_service.dart';
-import '../widgets/report_post_dialog.dart';
-import '../models/message_model.dart';
-import 'chat_screen.dart';
-import 'note_editor/note_editor_screen.dart';
 import '../utils/dialog_utils.dart';
 import 'post_detail/post_content.dart';
 import 'post_detail/post_actions.dart';
@@ -23,9 +18,9 @@ import 'post_detail/post_comment_controller.dart';
 import 'post_detail/post_comment_input_bar.dart';
 import 'post_detail/post_comments_section.dart';
 import 'post_detail/pdf_preview_screen.dart';
-import 'post_detail/share_user_selection_sheet.dart';
 import 'post_detail/post_status_views.dart';
 import 'post_detail/post_fullscreen_image_overlay.dart';
+import 'post_detail/post_actions_handler.dart';
 
 import 'post_detail/post_media.dart';
 
@@ -47,6 +42,9 @@ class _PostDetailScreenState extends State<PostDetailScreen>
   // 子控制器快捷访问。
   PostInteractionController get _interaction => _controller.interaction;
   PostCommentController get _comm => _controller.commentController;
+
+  // 分享 / 更多操作交互处理器（需要 BuildContext 的 UI 流程）。
+  late final PostActionsHandler _actionsHandler;
 
   // 下列 getter 桥接到 controller，避免改动大量 _build* 引用点。
   bool get isLiked => _interaction.isLiked;
@@ -92,6 +90,15 @@ class _PostDetailScreenState extends State<PostDetailScreen>
       _heartCtrl.forward(from: 0.0);
     };
     _controller.addListener(_onControllerChanged);
+
+    _actionsHandler = PostActionsHandler(
+      post: widget.post,
+      controller: _controller,
+      currentUserId: () => _currentUserId,
+      isOwner: () => _isOwner,
+      isMounted: () => mounted,
+      showMessage: _showSnack,
+    );
 
     _heartCtrl = AnimationController(
       vsync: this,
@@ -165,7 +172,8 @@ class _PostDetailScreenState extends State<PostDetailScreen>
             Icons.more_horiz,
             color: scheme.onSurface.withOpacity(0.7),
           ),
-          onPressed: _isDeleting ? null : _openMoreActions,
+          onPressed:
+              _isDeleting ? null : () => _actionsHandler.openMoreActions(context),
         ),
       ],
     );
@@ -216,160 +224,6 @@ class _PostDetailScreenState extends State<PostDetailScreen>
     // 从用户主页返回时，刷新关注状态（特别是如果用户在该页面取关了作者）
     if (userId == widget.post.author.id && _currentUserId != userId) {
       await _controller.checkFollowStatus();
-    }
-  }
-
-  Future<void> _onShare() async {
-    if (_currentUserId == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('请先登录')));
-      return;
-    }
-
-    // 显示分享选择界面
-    final selectedUserId = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) => ShareUserSelectionSheet(
-        currentUserId: _currentUserId!,
-        post: widget.post,
-      ),
-    );
-
-    if (selectedUserId == null) return;
-
-    // 分享帖子到选中的用户
-    await _sharePostToUser(selectedUserId);
-  }
-
-  Future<void> _sharePostToUser(String targetUserId) async {
-    try {
-      // 显示加载提示
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('正在分享...'),
-          duration: Duration(seconds: 1),
-        ),
-      );
-
-      // 获取或创建 conversation
-      final chatService = ChatService();
-      final conversation = await chatService.createOrGetPrivateConversation(
-        targetUserId,
-      );
-
-      if (conversation == null) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('创建会话失败，请稍后重试')));
-        return;
-      }
-
-      // 发送分享消息
-      // 使用 SHARE 类型，content 只存储 post ID
-      await chatService.sendMessage(
-        conversationId: conversation.id,
-        content: widget.post.id, // content 只存储 post ID
-        type: MessageType.share,
-      );
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('分享成功')));
-
-      // 可选：导航到聊天界面
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => ChatScreen(conversation: conversation),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('分享失败: $e')));
-    }
-  }
-
-  void _openMoreActions() {
-    showModalBottomSheet(
-      context: context,
-      builder: (_) => SafeArea(
-        child: Wrap(
-          children: [
-            // 只有作者可以看到"编辑"和"删除"
-            if (_isOwner)
-              ListTile(
-                leading: const Icon(Icons.edit_outlined),
-                title: const Text('编辑笔记'),
-                onTap: () async {
-                  // 先关闭底部弹窗
-                  Navigator.pop(context);
-                  // 复用已有的编辑逻辑
-                  await _openEditPost();
-                },
-              ),
-
-            if (_isOwner)
-              ListTile(
-                leading: const Icon(Icons.delete_forever, color: Colors.red),
-                title: const Text('删除笔记', style: TextStyle(color: Colors.red)),
-                onTap: () {
-                  Navigator.pop(context);
-                  _confirmDeletePost();
-                },
-              ),
-            ListTile(
-              leading: const Icon(Icons.flag),
-              title: const Text('举报'),
-              onTap: () async {
-                Navigator.pop(context);
-                final result = await showDialog(
-                  context: context,
-                  builder: (context) =>
-                      ReportPostDialog(postId: int.parse(widget.post.id)),
-                );
-                if (result == true && mounted) {
-                  ScaffoldMessenger.of(
-                    context,
-                  ).showSnackBar(const SnackBar(content: Text('举报成功，我们会尽快处理')));
-                }
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _confirmDeletePost() async {
-    final confirmed = await DialogUtils.showDeleteConfirmDialog(
-      context: context,
-      itemName: '笔记',
-      additionalWarning: '删除后将无法恢复。',
-    );
-
-    if (confirmed == true) {
-      // 删除成功后由 controller 的 onPostDeleted 回调 pop 返回上一页。
-      await _controller.deletePost();
-    }
-  }
-
-  Future<void> _openEditPost() async {
-    final result = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => NoteEditorPage(initialPost: widget.post),
-      ),
-    );
-
-    // 编辑页返回 true，表示"保存成功，需要刷新详情"
-    if (result == true) {
-      await _controller.loadPostDetail();
     }
   }
 
@@ -577,7 +431,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                     onComment: () =>
                         FocusScope.of(context).requestFocus(FocusNode()),
                     onSave: _interaction.toggleSave,
-                    onShare: _onShare,
+                    onShare: () => _actionsHandler.share(context),
                   ),
                   PostCommentsSection(
                     commentController: _comm,
