@@ -8,3 +8,7 @@
 
 # Build outputs (any level)
 **/build/
+
+# Local Spring profile overrides with secrets
+**/application-prod.properties
+**/application-local.properties

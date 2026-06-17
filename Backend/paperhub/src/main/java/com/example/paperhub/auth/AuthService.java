@@ -1,5 +1,9 @@
 package com.example.paperhub.auth;
 
+import com.example.paperhub.common.exception.BadRequestException;
+import com.example.paperhub.common.exception.ForbiddenException;
+import com.example.paperhub.common.exception.NotFoundException;
+import com.example.paperhub.common.exception.UnauthorizedException;
 import com.example.paperhub.notify.MailService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -24,7 +28,7 @@ public class AuthService {
     public void register(String email, String rawPassword) {//注册新用户
         // 检查是否已有已验证的用户
         if (userRepository.existsByEmailAndVerified(email, true)) {
-            throw new IllegalArgumentException("该邮箱已注册，请直接登录或找回密码");
+            throw new BadRequestException("该邮箱已注册，请直接登录或找回密码");
         }
 
         // 查找是否有未验证的用户
@@ -48,7 +52,7 @@ public class AuthService {
     }
 
     public void resendVerification(String email) {//重新发送验证邮件
-        User user = userRepository.findByEmail(email).orElseThrow(() -> new IllegalArgumentException("邮箱未注册"));
+        User user = userRepository.findByEmail(email).orElseThrow(() -> new NotFoundException("邮箱未注册"));
         String code = generateCode(6);
         user.setVerifyCode(code);
         user.setVerifyExpiry(Instant.now().plusSeconds(5 * 60));
@@ -57,15 +61,15 @@ public class AuthService {
     }
 
     public void verify(String email, String code) {//验证用户邮箱
-        User user = userRepository.findByEmail(email).orElseThrow(() -> new IllegalArgumentException("邮箱未注册"));
+        User user = userRepository.findByEmail(email).orElseThrow(() -> new NotFoundException("邮箱未注册"));
         if (user.getVerifyCode() == null || user.getVerifyExpiry() == null) {
-            throw new IllegalArgumentException("无验证请求，请先注册或重新发送验证码");
+            throw new BadRequestException("无验证请求，请先注册或重新发送验证码");
         }
         if (Instant.now().isAfter(user.getVerifyExpiry())) {
-            throw new IllegalArgumentException("验证码已过期，请重新获取验证邮件");
+            throw new BadRequestException("验证码已过期，请重新获取验证邮件");
         }
         if (!user.getVerifyCode().equals(code)) {
-            throw new IllegalArgumentException("验证码不正确");
+            throw new BadRequestException("验证码不正确");
         }
         user.setVerified(true);
         user.setVerifyCode(null);
@@ -75,11 +79,14 @@ public class AuthService {
 
     public User validateLogin(String email, String rawPassword) {//验证用户登录
         User user = userRepository.findByEmail(email).orElse(null);
-        if (user == null || !user.isVerified()) {
-            throw new IllegalArgumentException("邮箱未注册或未验证，请先注册并完成邮件验证");
+        if (user == null) {
+            throw new NotFoundException("邮箱未注册，请先注册并完成邮件验证");
+        }
+        if (!user.isVerified()) {
+            throw new ForbiddenException("邮箱未验证，请先完成邮件验证");
         }
         if (!passwordEncoder.matches(rawPassword, user.getPasswordHash())) {
-            throw new IllegalArgumentException("密码错误");
+            throw new UnauthorizedException("密码错误");
         }
         return user;
     }
@@ -91,7 +98,7 @@ public class AuthService {
     public void requestReset(String email) {//请求重置密码
         User user = userRepository.findByEmail(email).orElse(null);
         if (user == null || !user.isVerified()) {
-            throw new IllegalArgumentException("邮箱未注册或未验证");
+            throw new NotFoundException("邮箱未注册或未验证");
         }
         String code = generateCode(6);
         user.setResetCode(code);
@@ -103,16 +110,16 @@ public class AuthService {
     public void resetPassword(String email, String code, String newRawPassword) {//重置用户密码
         User user = userRepository.findByEmail(email).orElse(null);
         if (user == null || !user.isVerified()) {
-            throw new IllegalArgumentException("邮箱未注册或未验证");
+            throw new NotFoundException("邮箱未注册或未验证");
         }
         if (user.getResetCode() == null || user.getResetExpiry() == null) {
-            throw new IllegalArgumentException("无重置请求，请先请求重置邮件");
+            throw new BadRequestException("无重置请求，请先请求重置邮件");
         }
         if (Instant.now().isAfter(user.getResetExpiry())) {
-            throw new IllegalArgumentException("重置验证码已过期，请重新发送");
+            throw new BadRequestException("重置验证码已过期，请重新发送");
         }
         if (!user.getResetCode().equals(code)) {
-            throw new IllegalArgumentException("重置验证码不正确");
+            throw new BadRequestException("重置验证码不正确");
         }
         user.setPasswordHash(passwordEncoder.encode(newRawPassword));
         user.setResetCode(null);

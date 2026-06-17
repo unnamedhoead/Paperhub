@@ -1,8 +1,13 @@
 package com.example.paperhub.config;
 
-import com.example.paperhub.auth.dto.AuthDtos;
+import com.example.paperhub.common.dto.ApiResponse;
+import com.example.paperhub.common.exception.ApiException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -17,13 +22,13 @@ import java.util.Map;
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     /**
      * 处理参数验证失败异常
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Map<String, Object>> handleValidationExceptions(MethodArgumentNotValidException ex) {
-        Map<String, Object> errors = new HashMap<>();
+    public ResponseEntity<ApiResponse<Map<String, String>>> handleValidationExceptions(MethodArgumentNotValidException ex) {
         Map<String, String> fieldErrors = new HashMap<>();
         
         ex.getBindingResult().getAllErrors().forEach((error) -> {
@@ -31,47 +36,63 @@ public class GlobalExceptionHandler {
             String errorMessage = error.getDefaultMessage();
             fieldErrors.put(fieldName, errorMessage);
         });
-        
-        errors.put("message", "请求参数验证失败");
-        errors.put("errors", fieldErrors);
-        
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errors);
+
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(400, "请求参数验证失败", fieldErrors));
+    }
+
+    @ExceptionHandler(ApiException.class)
+    public ResponseEntity<ApiResponse<Object>> handleApiException(ApiException ex) {
+        return ResponseEntity
+                .status(ex.getStatus())
+                .body(ApiResponse.error(ex.getCode(), ex.getMessage()));
+    }
+
+    @ExceptionHandler(AuthenticationException.class)
+    public ResponseEntity<ApiResponse<Object>> handleAuthenticationException(AuthenticationException ex) {
+        return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.error(401, "未认证，请先登录"));
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Object>> handleAccessDeniedException(AccessDeniedException ex) {
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.error(403, "权限不足"));
     }
 
     /**
      * 处理 IllegalArgumentException
      */
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<Map<String, Object>> handleIllegalArgumentException(IllegalArgumentException ex) {
-        Map<String, Object> error = new HashMap<>();
-        error.put("message", ex.getMessage() != null ? ex.getMessage() : "请求参数错误");
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    public ResponseEntity<ApiResponse<Object>> handleIllegalArgumentException(IllegalArgumentException ex) {
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(400, ex.getMessage() != null ? ex.getMessage() : "请求参数错误"));
     }
 
     /**
      * 处理 NullPointerException
      */
     @ExceptionHandler(NullPointerException.class)
-    public ResponseEntity<Map<String, Object>> handleNullPointerException(NullPointerException ex) {
-        Map<String, Object> error = new HashMap<>();
-        error.put("message", "服务器内部错误：缺少必要的数据");
-        // 记录详细错误日志
-        System.err.println("NullPointerException: " + ex.getMessage());
-        ex.printStackTrace();
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+    public ResponseEntity<ApiResponse<Object>> handleNullPointerException(NullPointerException ex) {
+        log.error("NullPointerException", ex);
+        return ResponseEntity
+                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.error(500, "服务器内部错误：缺少必要的数据"));
     }
 
     /**
      * 处理所有其他异常
      */
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Map<String, Object>> handleGenericException(Exception ex) {
-        Map<String, Object> error = new HashMap<>();
-        error.put("message", ex.getMessage() != null ? ex.getMessage() : "服务器内部错误");
-        // 记录详细错误日志
-        System.err.println("Exception: " + ex.getMessage());
-        ex.printStackTrace();
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+    public ResponseEntity<ApiResponse<Object>> handleGenericException(Exception ex) {
+        log.error("Unhandled exception", ex);
+        return ResponseEntity
+                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.error(500, ex.getMessage() != null ? ex.getMessage() : "服务器内部错误"));
     }
 }
 

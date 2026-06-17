@@ -2,11 +2,15 @@ package com.example.paperhub.config;
 
 import com.example.paperhub.auth.User;
 import com.example.paperhub.auth.UserRepository;
+import com.example.paperhub.auth.UserRole;
 import com.example.paperhub.jwt.JwtService;
+import com.example.paperhub.jwt.TokenBlacklistService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -24,12 +28,20 @@ import java.util.Optional;
  */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+    private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
+
     private final JwtService jwtService;
     private final UserRepository userRepository;
+    private final TokenBlacklistService tokenBlacklistService;
 
-    public JwtAuthenticationFilter(JwtService jwtService, UserRepository userRepository) {
+    public JwtAuthenticationFilter(
+            JwtService jwtService,
+            UserRepository userRepository,
+            TokenBlacklistService tokenBlacklistService
+    ) {
         this.jwtService = jwtService;
         this.userRepository = userRepository;
+        this.tokenBlacklistService = tokenBlacklistService;
     }
 
     @Override
@@ -37,37 +49,45 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String authHeader = request.getHeader("Authorization");
         
-        if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            String token = authHeader.substring(7);
+        if (authHeader != null && authHeader.startsWith(JwtService.BEARER_PREFIX)) {
+            String token = authHeader.substring(JwtService.BEARER_PREFIX.length());
             
             try {
-                if (jwtService.validateToken(token)) {
+                if (jwtService.validateToken(token) && !isBlacklisted(token)) {
                     String email = jwtService.extractEmail(token);
                     Optional<User> userOpt = userRepository.findByEmail(email);
                     
                     if (userOpt.isPresent() && userOpt.get().isVerified()) {
                         User user = userOpt.get();
+                        UserRole role = user.getRole() != null ? user.getRole() : UserRole.USER;
                         
-                        // 创建认证对象
                         UsernamePasswordAuthenticationToken authentication =
                                 new UsernamePasswordAuthenticationToken(
                                         user,
                                         null,
-                                        Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"))
+                                        Collections.singletonList(new SimpleGrantedAuthority("ROLE_" + role.name()))
                                 );
                         authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                         
-                        // 设置到SecurityContext
                         SecurityContextHolder.getContext().setAuthentication(authentication);
                     }
                 }
             } catch (Exception e) {
-                // Token无效，继续执行过滤器链，让Spring Security处理未认证的请求
+                log.warn("JWT authentication failed: {}", e.getMessage());
                 SecurityContextHolder.clearContext();
             }
         }
         
         filterChain.doFilter(request, response);
+    }
+
+    private boolean isBlacklisted(String token) {
+        try {
+            return tokenBlacklistService.isBlacklisted(token);
+        } catch (Exception e) {
+            log.warn("JWT blacklist check failed: {}", e.getMessage());
+            return false;
+        }
     }
 }
 

@@ -42,10 +42,10 @@ paperhub/
 | Dart SDK        | 与 Flutter 版本自带                      |
 | Java            | JDK 17（推荐）                           |
 | Maven           | 3.8+                                     |
-| MySQL           | 8.x（需配置 `application.properties`）   |
+| MySQL           | 8.x（需配置本地 `application-local.properties`） |
 | Redis（可选）   | 6.x                                      |
 
-> ⚠️ 请在 `Backend/paperhub/src/main/resources/application.properties` 中配置实际的数据库、邮件、OBS 等账号信息。示例配置（含默认密码）仅供本地演示。
+> ⚠️ 不要把数据库密码、JWT secret、邮箱密码、OBS AK/SK 写进 `application.properties`。请在本地创建被 `.gitignore` 忽略的 `Backend/paperhub/src/main/resources/application-local.properties`，用真实 Spring 配置键填写敏感项；详见 `Backend/paperhub/ENVIRONMENT.md`。
 
 ---
 
@@ -53,14 +53,25 @@ paperhub/
 
 ### 1. 后端
 
+首次启动前创建本地私有配置文件：
+
+```properties
+# Backend/paperhub/src/main/resources/application-local.properties
+spring.datasource.password=<mysql-password>
+jwt.secret=<at-least-32-byte-secret>
+spring.mail.password=<mail-password>
+huawei.obs.ak=<obs-access-key>
+huawei.obs.sk=<obs-secret-key>
+```
+
 ```bash
 cd Backend/paperhub
 
 # 运行
-mvn clean spring-boot:run
+./mvnw spring-boot:run
 
 # 或打包
-mvn clean package
+./mvnw clean package
 java -jar target/paperhub-*.jar
 ```
 
@@ -87,10 +98,10 @@ flutter run -d chrome        # Web 调试
 
 - **JWT & Refresh Token**
   ```properties
-  jwt.secret=change-this-to-strong-secret-change
   jwt.expires-in-seconds=1800           # Access Token 30 分钟
   jwt.refresh-expires-in-seconds=604800 # Refresh Token 7 天
   ```
+  `jwt.secret` 属于敏感项，必须写在本地 `application-local.properties` 或部署环境的私有配置中。
 - **刷新机制**：详见 `Backend/paperhub/前端刷新令牌机制实现说明.md`，前端在 `ApiService` 中统一处理 401 → 刷新 → 重试。
 - **本地存储**：`lib/services/local_storage.dart` 使用 `SharedPreferences`；`main()` 中 `LocalStorage.instance.init()` 确保刷新页面后仍可读取 token / 用户信息。
 
@@ -100,8 +111,8 @@ flutter run -d chrome        # Web 调试
 
 | 目标                   | 命令                                                         |
 | ---------------------- | ------------------------------------------------------------ |
-| 后端单元测试           | `cd Backend/paperhub && mvn test`                            |
-| 后端运行               | `mvn spring-boot:run`                                        |
+| 后端单元测试           | `cd Backend/paperhub && ./mvnw test`                         |
+| 后端运行               | `cd Backend/paperhub && ./mvnw spring-boot:run`              |
 | Flutter 分析           | `cd Frontend && flutter analyze`                             |
 | Flutter 单元测试       | `cd Frontend && flutter test`                                |
 | 打包 Android APK       | `cd Frontend && flutter build apk --release`                 |

@@ -2,6 +2,9 @@
 package com.example.paperhub.auth;
 
 import com.example.paperhub.auth.dto.AuthDtos.*;
+import com.example.paperhub.common.exception.ForbiddenException;
+import com.example.paperhub.common.exception.NotFoundException;
+import com.example.paperhub.common.exception.UnauthorizedException;
 import com.example.paperhub.jwt.JwtService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -39,8 +42,8 @@ public class AuthController {
     @PostMapping("/login")//处理所有以/auth/login开头的请求，用户登录
     public ResponseEntity<LoginResp> login(@Valid @RequestBody LoginReq req) {
         User u = authService.validateLogin(req.email(), req.password());
-        String token = jwtService.generateToken(u.getEmail());
-        String refreshToken = jwtService.generateRefreshToken(u.getEmail());
+        String token = jwtService.generateToken(u.getEmail(), u.getId());
+        String refreshToken = jwtService.generateRefreshToken(u.getEmail(), u.getId());
         long expiresIn = jwtService.getExpiresInSeconds();
         long refreshExpiresIn = jwtService.getRefreshExpiresInSeconds();
         return ResponseEntity.ok(new LoginResp("登录成功", token, refreshToken, expiresIn, refreshExpiresIn));
@@ -60,40 +63,25 @@ public class AuthController {
 
     @PostMapping("/refresh")//处理所有以/auth/refresh开头的请求，刷新Access Token
     public ResponseEntity<RefreshTokenResp> refresh(@Valid @RequestBody RefreshTokenReq req) {
-        // 验证refresh token
         if (!jwtService.validateRefreshToken(req.refreshToken())) {
-            return ResponseEntity.status(401).build();
+            throw new UnauthorizedException("refreshToken 无效或已过期");
         }
         
-        // 从refresh token中提取用户email
         String email = jwtService.extractEmail(req.refreshToken());
         
-        // 验证用户是否存在且已验证
         User user = authService.findByEmail(email)
-            .orElseThrow(() -> new IllegalArgumentException("用户不存在"));
+            .orElseThrow(() -> new NotFoundException("用户不存在"));
         
         if (!user.isVerified()) {
-            return ResponseEntity.status(403).build();
+            throw new ForbiddenException("用户未验证");
         }
         
-        // 生成新的access token和refresh token
-        String newToken = jwtService.generateToken(email);
-        String newRefreshToken = jwtService.generateRefreshToken(email);
+        String newToken = jwtService.generateToken(email, user.getId());
+        String newRefreshToken = jwtService.generateRefreshToken(email, user.getId());
         long expiresIn = jwtService.getExpiresInSeconds();
         long refreshExpiresIn = jwtService.getRefreshExpiresInSeconds();
         
         return ResponseEntity.ok(new RefreshTokenResp(newToken, newRefreshToken, expiresIn, refreshExpiresIn));
-    }
-
-    @ExceptionHandler(IllegalArgumentException.class)//处理所有以/auth/开头的请求，返回错误信息
-    public ResponseEntity<MessageResp> handleBadRequest(IllegalArgumentException ex) {
-        String msg = ex.getMessage();
-        if (msg != null) {
-            if (msg.contains("未注册")) return ResponseEntity.status(404).body(new MessageResp(msg));
-            if (msg.contains("未验证")) return ResponseEntity.status(403).body(new MessageResp(msg));
-            if (msg.contains("密码错误")) return ResponseEntity.status(401).body(new MessageResp(msg));
-        }
-        return ResponseEntity.badRequest().body(new MessageResp(msg != null ? msg : "Bad request"));
     }
 }
 

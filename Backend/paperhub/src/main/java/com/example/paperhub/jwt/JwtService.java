@@ -3,6 +3,7 @@
 package com.example.paperhub.jwt;
 
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
@@ -12,18 +13,30 @@ import org.springframework.stereotype.Service;
 import javax.crypto.SecretKey;
 import java.time.Instant;
 import java.util.Date;
+import java.util.Optional;
+import java.util.UUID;
 
 @Service//定义服务层
 public class JwtService {
+    public static final String BEARER_PREFIX = "Bearer ";
+    public static final String TOKEN_TYPE_CLAIM = "type";
+    public static final String TOKEN_TYPE_ACCESS = "access";
+    public static final String TOKEN_TYPE_REFRESH = "refresh";
+    public static final String USER_ID_CLAIM = "userId";
+    public static final String JTI_CLAIM = "jti";
+
     private final SecretKey key;
     private final long expiresInSeconds;
     private final long refreshExpiresInSeconds;
 
     public JwtService(
-        @Value("${jwt.secret:change-this-to-strong-secret-change}") String secret,
+        @Value("${jwt.secret}") String secret,
         @Value("${jwt.expires-in-seconds:3600}") long expiresInSeconds,
         @Value("${jwt.refresh-expires-in-seconds:604800}") long refreshExpiresInSeconds
     ) {
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException("jwt.secret must be configured");
+        }
         this.key = Keys.hmacShaKeyFor(secret.getBytes());
         this.expiresInSeconds = expiresInSeconds;
         this.refreshExpiresInSeconds = refreshExpiresInSeconds;
@@ -33,27 +46,37 @@ public class JwtService {
      * 生成Access Token（短期令牌，用于API请求）
      */
     public String generateToken(String subject) {
-        Instant now = Instant.now();
-        return Jwts.builder()
-            .setSubject(subject)
-            .setIssuedAt(Date.from(now))
-            .setExpiration(Date.from(now.plusSeconds(expiresInSeconds)))
-            .signWith(key, SignatureAlgorithm.HS256)
-            .compact();
+        return generateToken(subject, null);
+    }
+
+    public String generateToken(String subject, Long userId) {
+        return buildToken(subject, userId, TOKEN_TYPE_ACCESS, expiresInSeconds);
     }
 
     /**
      * 生成Refresh Token（长期令牌，用于刷新Access Token）
      */
     public String generateRefreshToken(String subject) {
+        return generateRefreshToken(subject, null);
+    }
+
+    public String generateRefreshToken(String subject, Long userId) {
+        return buildToken(subject, userId, TOKEN_TYPE_REFRESH, refreshExpiresInSeconds);
+    }
+
+    private String buildToken(String subject, Long userId, String tokenType, long ttlSeconds) {
         Instant now = Instant.now();
-        return Jwts.builder()
+        var builder = Jwts.builder()
             .setSubject(subject)
             .setIssuedAt(Date.from(now))
-            .setExpiration(Date.from(now.plusSeconds(refreshExpiresInSeconds)))
-            .claim("type", "refresh") // 标记为refresh token
-            .signWith(key, SignatureAlgorithm.HS256)
-            .compact();
+            .setExpiration(Date.from(now.plusSeconds(ttlSeconds)))
+            .setId(UUID.randomUUID().toString())
+            .claim(TOKEN_TYPE_CLAIM, tokenType)
+            .claim(JTI_CLAIM, UUID.randomUUID().toString());
+        if (userId != null) {
+            builder.claim(USER_ID_CLAIM, userId);
+        }
+        return builder.signWith(key, SignatureAlgorithm.HS256).compact();
     }
 
     public long getExpiresInSeconds() {
@@ -70,12 +93,20 @@ public class JwtService {
      * @return Claims对象，包含token中的所有信息
      * @throws io.jsonwebtoken.JwtException 如果token无效或已过期
      */
-    public Claims parseToken(String token) {
+    private Claims parseToken(String token) {
         return Jwts.parserBuilder()
             .setSigningKey(key)
             .build()
             .parseClaimsJws(token)
             .getBody();
+    }
+
+    public Optional<Claims> parseTokenSafely(String token) {
+        try {
+            return Optional.of(parseToken(token));
+        } catch (JwtException | IllegalArgumentException e) {
+            return Optional.empty();
+        }
     }
 
     /**
@@ -94,12 +125,9 @@ public class JwtService {
      * @return true if valid, false otherwise
      */
     public boolean validateToken(String token) {
-        try {
-            parseToken(token);
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
+        return parseTokenSafely(token)
+                .map(claims -> TOKEN_TYPE_ACCESS.equals(claims.get(TOKEN_TYPE_CLAIM, String.class)))
+                .orElse(false);
     }
 
     /**
@@ -108,14 +136,21 @@ public class JwtService {
      * @return true if valid, false otherwise
      */
     public boolean validateRefreshToken(String token) {
-        try {
-            Claims claims = parseToken(token);
-            // 检查是否是refresh token类型
-            String type = claims.get("type", String.class);
-            return "refresh".equals(type);
-        } catch (Exception e) {
-            return false;
-        }
+        return parseTokenSafely(token)
+                .map(claims -> TOKEN_TYPE_REFRESH.equals(claims.get(TOKEN_TYPE_CLAIM, String.class)))
+                .orElse(false);
+    }
+
+    public Optional<Instant> extractExpiration(String token) {
+        return parseTokenSafely(token)
+                .map(Claims::getExpiration)
+                .map(Date::toInstant);
+    }
+
+    public Optional<Long> extractUserId(String token) {
+        return parseTokenSafely(token)
+                .map(claims -> claims.get(USER_ID_CLAIM, Number.class))
+                .map(Number::longValue);
     }
 }
 
