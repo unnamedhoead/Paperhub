@@ -43,3 +43,8 @@
 - discovery agent stall(0 commit, 14min 无输出，big-file 一次吞 home+search 过载)，force 清理 worktree。
 - 重新委托 2 个更小 agent: home(adc023) + search(a90d23)，强化防 stall(逐组件 commit/禁大脚本)。
 - P2 已合 4/5 (admin/interaction/chat/profile)。等 home/search 重跑。
+
+## Iteration ~38 — 2026-06-18
+- profile 实际未挂(stale transcript 误判): 被回收后 fallback 到主仓库直接 commit bfb4048(profile_screen 553-290 + ProfileViewController ChangeNotifier + 删死代码). 已落 refactor/wave1-base, 自验 analyze 0 + 137 tests 绿. profile 完成(<=300).
+- 教训: force-remove 疑似挂起(transcript 14min stale)的 worktree 有风险 -- agent 可能仍活, 工具 fallback 到主 checkout 直接提交 shared 分支(ae613c 成功 bfb4048; a697ab 未 land). 今后优先靠 completion notification 而非 force-remove.
+- P2: admin/interaction/chat/profile 4 域完成; home(adc023)/search(a90d23) 重跑中.
