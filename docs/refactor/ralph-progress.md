@@ -52,3 +52,8 @@
 ## Iteration ~40 — search 合并
 - 合并 P2-search: search_screen 750→297 + screens/search/(5 widget), 6 增量 commit(防 stall 成功), analyze 0.
 - P2 拆分 5/6 完成(admin/interaction/chat/profile/search); 仅 home(adc023) 在跑.
+
+## P2 COMPLETE — 2026-06-18
+- 合并 P2-home: home_screen 1017→230 + screens/home/ 8 文件(HomeController+2子controller+4widget), 6 增量 commit, analyze 0, 137 tests.
+- **P2 阶段全部完成**: 6 个超标文件全拆(admin/profile/chat/follow/search/home), 全部 ≤300; N3/N4 清理; arxiv/chat/notification_ws service 测试.
+- 启动 Stage2: codex-review P2 批次 (--base 9446f82, 干净临时 worktree).
