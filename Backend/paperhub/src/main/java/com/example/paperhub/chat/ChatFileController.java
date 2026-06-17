@@ -1,10 +1,13 @@
 package com.example.paperhub.chat;
 
 import com.example.paperhub.auth.User;
+import com.example.paperhub.common.exception.BadRequestException;
+import com.example.paperhub.common.exception.UnauthorizedException;
 import com.example.paperhub.config.ObsConfig;
 import com.obs.services.ObsClient;
 import com.obs.services.exception.ObsException;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.util.StringUtils;
@@ -19,42 +22,41 @@ import java.util.UUID;
 @RequestMapping("/api/upload")
 public class ChatFileController {
 
-    @Autowired
-    private ObsClient obsClient;
+    private static final Logger log = LoggerFactory.getLogger(ChatFileController.class);
 
-    @Autowired
-    private ObsConfig obsConfig;
+    private final ObsClient obsClient;
+    private final ObsConfig obsConfig;
+
+    public ChatFileController(ObsClient obsClient, ObsConfig obsConfig) {
+        this.obsClient = obsClient;
+        this.obsConfig = obsConfig;
+    }
 
     /**
-     * 上传聊天文件
+     * Upload a chat file (image, doc, etc.) to OBS.
      */
     @PostMapping("/chat-file")
-    public ResponseEntity<?> uploadChatFile(
+    public ResponseEntity<Map<String, Object>> uploadChatFile(
             @AuthenticationPrincipal User currentUser,
             @RequestParam("file") MultipartFile file) {
 
         if (currentUser == null) {
-            return ResponseEntity.status(401).body(Map.of("message", "未认证，请先登录"));
+            throw new UnauthorizedException("未认证，请先登录");
         }
-
         if (file == null || file.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("message", "文件不能为空"));
+            throw new BadRequestException("文件不能为空");
         }
 
-        // 验证文件类型和大小
         String originalName = file.getOriginalFilename();
         String extension = StringUtils.hasText(originalName) && originalName.contains(".")
                 ? originalName.substring(originalName.lastIndexOf('.'))
                 : "";
 
-        // 检查文件大小 (限制为 50MB)
         if (file.getSize() > 50 * 1024 * 1024) {
-            return ResponseEntity.badRequest().body(Map.of("message", "文件大小不能超过50MB"));
+            throw new BadRequestException("文件大小不能超过50MB");
         }
-
-        // 检查文件类型
         if (!isAllowedFileType(extension)) {
-            return ResponseEntity.badRequest().body(Map.of("message", "不支持的文件类型"));
+            throw new BadRequestException("不支持的文件类型");
         }
 
         String objectKey = "chat-files/" + UUID.randomUUID() + extension;
@@ -62,22 +64,19 @@ public class ChatFileController {
 
         try {
             obsClient.putObject(obsConfig.getBucketName(), objectKey, file.getInputStream());
-            return ResponseEntity.ok(Map.of(
+        } catch (ObsException e) {
+            log.error("OBS upload failed: {}", e.getErrorMessage(), e);
+            throw new RuntimeException("文件上传失败: " + e.getErrorMessage(), e);
+        } catch (IOException e) {
+            log.error("File read failed: {}", e.getMessage(), e);
+            throw new RuntimeException("文件上传失败: " + e.getMessage(), e);
+        }
+
+        return ResponseEntity.ok(Map.of(
                 "url", url,
                 "fileName", originalName,
                 "fileSize", file.getSize(),
-                "message", "文件上传成功"
-            ));
-        } catch (ObsException e) {
-            return ResponseEntity.status(500).body(Map.of(
-                "message", "文件上传失败: " + e.getErrorMessage(),
-                "code", e.getErrorCode()
-            ));
-        } catch (IOException e) {
-            return ResponseEntity.status(500).body(Map.of(
-                "message", "文件上传失败: " + e.getMessage()
-            ));
-        }
+                "message", "文件上传成功"));
     }
 
     private boolean isAllowedFileType(String extension) {
