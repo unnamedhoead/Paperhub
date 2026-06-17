@@ -48,7 +48,7 @@ class _ReportPostDialogState extends State<ReportPostDialog> {
 
       if (!mounted) return;
 
-      if (response['statusCode'] == 200) {
+      if (response['statusCode'] == 200 && response['body']?['success'] != false) {
         Navigator.of(context).pop(true); // 返回成功标志
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
