@@ -26,3 +26,10 @@
   screen 保留 build + _build* UI, addListener 刷新, 用户操作调 controller 方法。
   目标: screen 骨架内无 _load*/_handle*Pressed 业务方法 (grep 核)。
 - 下一步: 等 P2 agents 完成 → 验证合并 → codex-review --base 9446f82 → 文档 → G1。
+
+## Iteration 4-6 — 2026-06-18
+- 写 architecture-decisions.md (A1-A4+I5 的 YAGNI/Deferred 诚实决议, Stage5 部分完成)。
+- 合并 P2-admin: admin_post_section 616→173 + admin_controller 590→249(mixin), 全 ≤300。
+- 合并 P2-interaction: follow_list 851→178 + screens/follow/ + N4(follow_controller 移入) + notification_ws 测试10例。
+- 全量 flutter test 127 绿, analyze 0 error。
+- 剩 3 agent 跑: discovery(home/search 最慢)/chat/profile。等完成合并 → codex-review → 文档 → G1。
