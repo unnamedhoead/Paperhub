@@ -29,7 +29,7 @@ public class AdminApplication {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
-    private AdminDtos.AdminApplicationStatus status = AdminDtos.AdminApplicationStatus.PENDING;
+    private AdminApplicationStatus status = AdminApplicationStatus.PENDING;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "decided_by_id")
@@ -73,11 +73,11 @@ public class AdminApplication {
         this.reason = reason;
     }
 
-    public AdminDtos.AdminApplicationStatus getStatus() {
+    public AdminApplicationStatus getStatus() {
         return status;
     }
 
-    public void setStatus(AdminDtos.AdminApplicationStatus status) {
+    public void setStatus(AdminApplicationStatus status) {
         this.status = status;
     }
 

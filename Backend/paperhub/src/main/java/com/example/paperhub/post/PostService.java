@@ -9,6 +9,8 @@ import com.example.paperhub.post.service.PostReportDelegate;
 import com.example.paperhub.report.ReportPost;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.example.paperhub.report.ReportPostRepository;
+import com.example.paperhub.admin.ReportStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
