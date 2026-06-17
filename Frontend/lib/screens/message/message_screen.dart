@@ -13,7 +13,7 @@ import '../../services/unread_service.dart';
 import '../../utils/dialog_utils.dart';
 import '../home_screen.dart';
 import '../profile_screen.dart';
-import '../../pages/note_editor_page.dart';
+import 'note_editor/note_editor_screen.dart';
 import '../chat_screen.dart';
 import 'conversation_list.dart';
 import 'notification_list.dart';

@@ -23,7 +23,7 @@ import '../services/chat_service.dart';
 import '../widgets/report_post_dialog.dart';
 import '../models/message_model.dart';
 import 'chat_screen.dart';
-import '../pages/note_editor_page.dart';
+import 'note_editor/note_editor_screen.dart';
 import '../utils/dialog_utils.dart';
 
 class PostDetailScreen extends StatefulWidget {
