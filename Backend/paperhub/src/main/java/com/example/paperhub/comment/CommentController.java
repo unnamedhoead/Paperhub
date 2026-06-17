@@ -2,9 +2,13 @@ package com.example.paperhub.comment;
 
 import com.example.paperhub.auth.User;
 import com.example.paperhub.comment.dto.CommentDtos;
+import com.example.paperhub.common.exception.BadRequestException;
+import com.example.paperhub.common.exception.UnauthorizedException;
 import com.example.paperhub.like.LikeService;
 import com.example.paperhub.websocket.WebSocketService;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -12,14 +16,14 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.ZoneOffset;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/posts/{postId}/comments")
 public class CommentController {
+    private static final Logger log = LoggerFactory.getLogger(CommentController.class);
+
     private final CommentService commentService;
     private final LikeService likeService;
     private final WebSocketService webSocketService;
@@ -43,14 +47,14 @@ public class CommentController {
             @RequestParam(defaultValue = "20") int pageSize,
             @RequestParam(defaultValue = "time") String sort,
             @AuthenticationPrincipal User user) {
-        
+
         Page<Comment> commentPage = commentService.getComments(postId, page, pageSize, sort);
         Long userId = user != null ? user.getId() : null;
-        
+
         List<CommentDtos.CommentResp> comments = commentPage.getContent().stream()
             .map(comment -> convertToCommentResp(comment, userId))
             .collect(Collectors.toList());
-        
+
         return ResponseEntity.ok(new CommentDtos.CommentListResp(
             comments,
             commentPage.getTotalElements(),
@@ -64,26 +68,19 @@ public class CommentController {
      * POST /posts/{postId}/comments
      */
     @PostMapping
-    public ResponseEntity<?> createComment(
+    public ResponseEntity<CommentDtos.CommentResp> createComment(
             @PathVariable Long postId,
             @Valid @RequestBody CommentDtos.CreateCommentReq req,
             @AuthenticationPrincipal User user) {
+
+        log.debug("创建评论: postId={}, userId={}, parentId={}, replyToId={}",
+                postId, user != null ? user.getId() : null, req.parentId(), req.replyToId());
+
+        if (user == null) {
+            throw new UnauthorizedException("未认证，请先登录");
+        }
+
         try {
-            System.out.println("=== 创建评论请求 ===");
-            System.out.println("帖子ID: " + postId);
-            System.out.println("用户: " + (user != null ? user.getId() + " (" + user.getEmail() + ")" : "null"));
-            System.out.println("评论内容: " + req.content());
-            System.out.println("父评论ID: " + req.parentId());
-            System.out.println("回复用户ID: " + req.replyToId());
-            
-            // 检查用户是否已认证
-            if (user == null) {
-                System.err.println("错误: 用户未认证");
-                Map<String, String> error = new HashMap<>();
-                error.put("message", "未认证，请先登录");
-                return ResponseEntity.status(401).body(error);
-            }
-            
             List<Long> mentionIds = req.mentionIds() != null ? req.mentionIds() : List.of();
             Comment comment = commentService.createComment(
                 postId,
@@ -93,36 +90,24 @@ public class CommentController {
                 req.replyToId(),
                 mentionIds
             );
-            
-            System.out.println("评论创建成功，ID: " + comment.getId());
-            
+
+            log.debug("评论创建成功: commentId={}", comment.getId());
+
             // 加载子回复
             List<Comment> replies = commentService.getReplies(comment.getId());
-            
+
             CommentDtos.CommentResp resp = convertToCommentRespWithReplies(comment, user.getId(), replies, mentionIds);
-            
+
             // 推送WebSocket消息
             try {
                 webSocketService.sendCommentCreated(postId, resp);
             } catch (Exception wsEx) {
-                System.err.println("WebSocket推送失败（不影响主流程）: " + wsEx.getMessage());
+                log.warn("WebSocket推送失败（不影响主流程）: {}", wsEx.getMessage());
             }
-            
-            System.out.println("返回响应: 评论ID=" + resp.id());
+
             return ResponseEntity.status(201).body(resp);
         } catch (IllegalArgumentException e) {
-            System.err.println("创建评论失败: " + e.getMessage());
-            Map<String, Object> error = new HashMap<>();
-            error.put("message", e.getMessage());
-            return ResponseEntity.status(400).body(error);
-        } catch (Exception e) {
-            System.err.println("创建评论失败: " + e.getMessage());
-            e.printStackTrace();
-            
-            Map<String, Object> error = new HashMap<>();
-            error.put("message", "创建评论失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"));
-            error.put("postId", postId);
-            return ResponseEntity.status(500).body(error);
+            throw new BadRequestException(e.getMessage());
         }
     }
 
@@ -136,17 +121,17 @@ public class CommentController {
             @PathVariable Long commentId,
             @Valid @RequestBody CommentDtos.UpdateCommentReq req,
             @AuthenticationPrincipal User user) {
-        
+
         Comment comment = commentService.updateComment(commentId, req.content(), user);
         List<Comment> replies = commentService.getReplies(comment.getId());
-        
+
         // 从Comment实体中解析mentionIds
         List<Long> mentionIds = parseMentionIds(comment.getMentionIds());
         CommentDtos.CommentResp resp = convertToCommentRespWithReplies(comment, user.getId(), replies, mentionIds);
-        
+
         // 推送WebSocket消息
         webSocketService.sendCommentUpdated(postId, resp);
-        
+
         return ResponseEntity.ok(resp);
     }
 
@@ -159,12 +144,12 @@ public class CommentController {
             @PathVariable Long postId,
             @PathVariable Long commentId,
             @AuthenticationPrincipal User user) {
-        
+
         commentService.deleteComment(commentId, user);
-        
+
         // 推送WebSocket消息
         webSocketService.sendCommentDeleted(postId, commentId.toString());
-        
+
         return ResponseEntity.noContent().build();
     }
 
@@ -173,52 +158,11 @@ public class CommentController {
      * POST /posts/{postId}/comments/{commentId}/like
      */
     @PostMapping("/{commentId}/like")
-    public ResponseEntity<?> likeComment(
+    public ResponseEntity<CommentDtos.LikeResp> likeComment(
             @PathVariable Long postId,
             @PathVariable Long commentId,
             @AuthenticationPrincipal User user) {
-        try {
-            System.out.println("=== 点赞评论请求 ===");
-            System.out.println("帖子ID: " + postId + ", 评论ID: " + commentId);
-            System.out.println("用户: " + (user != null ? user.getId() + " (" + user.getEmail() + ")" : "null"));
-            
-            if (user == null) {
-                System.err.println("错误: 用户未认证");
-                Map<String, String> error = new HashMap<>();
-                error.put("message", "未认证，请先登录");
-                return ResponseEntity.status(401).body(error);
-            }
-            
-            // 执行点赞
-            boolean result = likeService.likeComment(commentId, user);
-            System.out.println("点赞操作结果: " + result);
-            
-            // 获取最新状态
-            long likesCount = likeService.getCommentLikesCount(commentId);
-            boolean isLiked = likeService.isCommentLiked(commentId, user.getId());
-            
-            System.out.println("当前点赞数: " + likesCount);
-            System.out.println("用户是否已点赞: " + isLiked);
-            
-            // 推送WebSocket消息
-            try {
-                webSocketService.sendCommentLikeUpdate(postId, commentId.toString(), (int) likesCount, isLiked);
-            } catch (Exception wsEx) {
-                System.err.println("WebSocket推送失败（不影响主流程）: " + wsEx.getMessage());
-            }
-            
-            CommentDtos.LikeResp resp = new CommentDtos.LikeResp((int) likesCount, isLiked);
-            System.out.println("返回响应: likesCount=" + resp.likesCount() + ", isLiked=" + resp.isLiked());
-            return ResponseEntity.ok(resp);
-        } catch (Exception e) {
-            System.err.println("点赞评论失败: " + e.getMessage());
-            e.printStackTrace();
-            
-            Map<String, Object> error = new HashMap<>();
-            error.put("message", "点赞评论失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"));
-            error.put("commentId", commentId);
-            return ResponseEntity.status(500).body(error);
-        }
+        return handleCommentLikeResponse(postId, commentId, user, true);
     }
 
     /**
@@ -226,52 +170,37 @@ public class CommentController {
      * DELETE /posts/{postId}/comments/{commentId}/like
      */
     @DeleteMapping("/{commentId}/like")
-    public ResponseEntity<?> unlikeComment(
+    public ResponseEntity<CommentDtos.LikeResp> unlikeComment(
             @PathVariable Long postId,
             @PathVariable Long commentId,
             @AuthenticationPrincipal User user) {
-        try {
-            System.out.println("=== 取消点赞评论请求 ===");
-            System.out.println("帖子ID: " + postId + ", 评论ID: " + commentId);
-            System.out.println("用户: " + (user != null ? user.getId() + " (" + user.getEmail() + ")" : "null"));
-            
-            if (user == null) {
-                System.err.println("错误: 用户未认证");
-                Map<String, String> error = new HashMap<>();
-                error.put("message", "未认证，请先登录");
-                return ResponseEntity.status(401).body(error);
-            }
-            
-            // 执行取消点赞
-            boolean result = likeService.unlikeComment(commentId, user);
-            System.out.println("取消点赞操作结果: " + result);
-            
-            // 获取最新状态
-            long likesCount = likeService.getCommentLikesCount(commentId);
-            boolean isLiked = likeService.isCommentLiked(commentId, user.getId());
-            
-            System.out.println("当前点赞数: " + likesCount);
-            System.out.println("用户是否已点赞: " + isLiked);
-            
-            // 推送WebSocket消息
-            try {
-                webSocketService.sendCommentLikeUpdate(postId, commentId.toString(), (int) likesCount, isLiked);
-            } catch (Exception wsEx) {
-                System.err.println("WebSocket推送失败（不影响主流程）: " + wsEx.getMessage());
-            }
-            
-            CommentDtos.LikeResp resp = new CommentDtos.LikeResp((int) likesCount, isLiked);
-            System.out.println("返回响应: likesCount=" + resp.likesCount() + ", isLiked=" + resp.isLiked());
-            return ResponseEntity.ok(resp);
-        } catch (Exception e) {
-            System.err.println("取消点赞评论失败: " + e.getMessage());
-            e.printStackTrace();
-            
-            Map<String, Object> error = new HashMap<>();
-            error.put("message", "取消点赞评论失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"));
-            error.put("commentId", commentId);
-            return ResponseEntity.status(500).body(error);
+        return handleCommentLikeResponse(postId, commentId, user, false);
+    }
+
+    /**
+     * 统一的点赞/取消点赞处理
+     */
+    private ResponseEntity<CommentDtos.LikeResp> handleCommentLikeResponse(
+            Long postId, Long commentId, User user, boolean isLike) {
+        if (user == null) {
+            throw new UnauthorizedException("未认证，请先登录");
         }
+        log.debug("{} comment like: postId={}, commentId={}, userId={}",
+                isLike ? "Like" : "Unlike", postId, commentId, user.getId());
+
+        boolean result = isLike ? likeService.likeComment(commentId, user)
+                                : likeService.unlikeComment(commentId, user);
+
+        long likesCount = likeService.getCommentLikesCount(commentId);
+        boolean isLiked = likeService.isCommentLiked(commentId, user.getId());
+
+        try {
+            webSocketService.sendCommentLikeUpdate(postId, commentId.toString(), (int) likesCount, isLiked);
+        } catch (Exception wsEx) {
+            log.warn("WebSocket推送失败（不影响主流程）: {}", wsEx.getMessage());
+        }
+
+        return ResponseEntity.ok(new CommentDtos.LikeResp((int) likesCount, isLiked));
     }
 
     /**
@@ -283,7 +212,7 @@ public class CommentController {
         List<Long> mentionIds = parseMentionIds(comment.getMentionIds());
         return convertToCommentRespWithReplies(comment, userId, replies, mentionIds);
     }
-    
+
     private List<Long> parseMentionIds(String mentionIdsStr) {
         if (mentionIdsStr == null || mentionIdsStr.trim().isEmpty()) {
             return List.of();
@@ -294,17 +223,17 @@ public class CommentController {
                 .map(Long::parseLong)
                 .collect(Collectors.toList());
         } catch (Exception e) {
-            System.err.println("解析mentionIds失败: " + e.getMessage());
+            log.warn("解析mentionIds失败: {}", e.getMessage());
             return List.of();
         }
     }
 
     private CommentDtos.CommentResp convertToCommentRespWithReplies(Comment comment, Long userId, List<Comment> replies, List<Long> mentionIds) {
         User author = comment.getAuthor();
-        String authorName = author.getName() != null && !author.getName().isEmpty() 
-            ? author.getName() 
-            : (author.getEmail().contains("@") 
-                ? author.getEmail().substring(0, author.getEmail().indexOf("@")) 
+        String authorName = author.getName() != null && !author.getName().isEmpty()
+            ? author.getName()
+            : (author.getEmail().contains("@")
+                ? author.getEmail().substring(0, author.getEmail().indexOf("@"))
                 : author.getEmail());
         CommentDtos.AuthorInfo authorInfo = new CommentDtos.AuthorInfo(
             author.getId(),
@@ -371,7 +300,7 @@ public class CommentController {
                 // 解析楼中楼回复的mentions
                 List<CommentDtos.AuthorInfo> replyMentionInfos = new ArrayList<>();
                 List<Long> replyMentionIds = parseMentionIds(reply.getMentionIds());
-                System.out.println("楼中楼回复 @" + reply.getId() + " 的 mentionIds: " + reply.getMentionIds() + ", 解析结果: " + replyMentionIds);
+                log.debug("楼中楼回复 @{} 的 mentionIds: {}, 解析结果: {}", reply.getId(), reply.getMentionIds(), replyMentionIds);
                 if (replyMentionIds != null && !replyMentionIds.isEmpty()) {
                     for (Long mentionId : replyMentionIds) {
                         userRepository.findById(mentionId).ifPresent(mentionedUser -> {
@@ -440,6 +369,7 @@ public class CommentController {
             mentionInfos
         );
     }
+
     private String resolveAvatar(String avatar) {
         if (avatar == null || avatar.trim().isEmpty()) {
             return "images/DefaultAvatar.png";
@@ -451,4 +381,3 @@ public class CommentController {
         return avatar;
     }
 }
-

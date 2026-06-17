@@ -4,6 +4,7 @@ import com.example.paperhub.post.Post;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -30,5 +31,13 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
 
     @Query("select c.id from Comment c where c.post.id = :postId")
     List<Long> findIdsByPostId(@Param("postId") Long postId);
+
+    @Modifying
+    @Query("DELETE FROM Comment c WHERE c.id IN :ids")
+    void deleteAllByIdIn(@Param("ids") List<Long> ids);
+
+    @Modifying
+    @Query("UPDATE Post p SET p.commentsCount = GREATEST(p.commentsCount - :delta, 0) WHERE p.id = :postId")
+    void decrementPostCommentsCount(@Param("postId") Long postId, @Param("delta") int delta);
 }
 

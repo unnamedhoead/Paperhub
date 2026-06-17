@@ -8,6 +8,8 @@ import com.example.paperhub.notification.NotificationService;
 import com.example.paperhub.post.Post;
 import com.example.paperhub.post.PostRepository;
 import com.example.paperhub.post.PostService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -22,6 +24,8 @@ import java.util.stream.Collectors;
 
 @Service
 public class CommentService {
+    private static final Logger log = LoggerFactory.getLogger(CommentService.class);
+
     private final CommentRepository commentRepository;
     private final PostRepository postRepository;
     private final UserRepository userRepository;
@@ -113,14 +117,14 @@ public class CommentService {
                                 notificationService.createMentionNotification(author, postId, saved.getId(), mentionedUser);
                             }
                         } catch (Exception e) {
-                            System.err.println("创建@通知失败: " + e.getMessage());
+                            log.warn("创建@通知失败: {}", e.getMessage());
                         }
                     }
                 }
             }
         } catch (Exception e) {
             // 通知创建失败不影响评论操作
-            System.err.println("创建评论通知失败: " + e.getMessage());
+            log.warn("创建评论通知失败: {}", e.getMessage());
         }
         
         return saved;
@@ -151,44 +155,33 @@ public class CommentService {
     public void deleteComment(Long commentId, User user) {
         Comment comment = commentRepository.findById(commentId)
             .orElseThrow(() -> new IllegalArgumentException("评论不存在"));
-        
+
         // 检查权限：评论作者或帖子作者可以删除
         boolean isCommentAuthor = comment.getAuthor().getId().equals(user.getId());
         boolean isPostAuthor = comment.getPost().getAuthor().getId().equals(user.getId());
-        
+
         if (!isCommentAuthor && !isPostAuthor) {
             throw new IllegalArgumentException("无权删除此评论");
         }
 
-        // 判断是否为顶层评论
+        Long postId = comment.getPost().getId();
         boolean isTopLevel = comment.getParent() == null;
-        
+
         if (isTopLevel) {
-            // 如果是顶层评论，收集所有子回复（包括嵌套的）
             List<Long> allCommentIds = new ArrayList<>();
             allCommentIds.add(commentId);
             collectAllReplyIds(commentId, allCommentIds);
-            
-            // 先删除所有相关评论的点赞记录
-            if (!allCommentIds.isEmpty()) {
-                commentLikeRepository.deleteByCommentIdIn(allCommentIds);
-            }
-            
-            // 递归删除所有子回复（从最深层开始）
-            deleteCommentRecursively(commentId);
-            
-            // 更新帖子的评论数（减少所有删除的评论数）
-            int totalDeleted = allCommentIds.size();
-            for (int i = 0; i < totalDeleted; i++) {
-                postService.decrementCommentsCount(comment.getPost().getId());
-            }
+
+            // batch delete likes
+            commentLikeRepository.deleteByCommentIdIn(allCommentIds);
+            // batch delete comments
+            commentRepository.deleteAllByIdIn(allCommentIds);
+            // decrement post comment count once for total deleted (atomic SQL)
+            commentRepository.decrementPostCommentsCount(postId, allCommentIds.size());
         } else {
-            // 如果是楼中楼，只删除该评论的点赞记录和评论本身
             commentLikeRepository.deleteByCommentIdIn(List.of(commentId));
-            commentRepository.delete(comment);
-            
-            // 更新帖子的评论数
-            postService.decrementCommentsCount(comment.getPost().getId());
+            commentRepository.deleteById(commentId);
+            commentRepository.decrementPostCommentsCount(postId, 1);
         }
     }
     
@@ -203,17 +196,6 @@ public class CommentService {
         }
     }
     
-    /**
-     * 递归删除评论及其所有子回复（点赞记录已在外部批量删除）
-     */
-    private void deleteCommentRecursively(Long commentId) {
-        List<Comment> replies = commentRepository.findByParentIdOrderByCreatedAtAsc(commentId);
-        for (Comment reply : replies) {
-            deleteCommentRecursively(reply.getId()); // 先递归删除子回复
-        }
-        commentRepository.deleteById(commentId); // 再删除自己
-    }
-
     /**
      * 获取评论的子回复列表
      */
