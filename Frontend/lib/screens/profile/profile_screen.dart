@@ -212,7 +212,7 @@ class _ProfilePageState extends State<ProfilePage>
       onLogout: () async {
         await ProfileController.logout();
         if (!mounted) return;
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => LoginPage()));
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => LoginScreen()));
       },
     );
   }

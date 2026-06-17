@@ -11,12 +11,12 @@ import '../../widgets/animated_title_background.dart';
 import '../../constants/app_colors.dart';
 import '../../utils/font_utils.dart';
 
-class LoginPage extends StatefulWidget {
+class LoginScreen extends StatefulWidget {
   @override
-  _LoginPageState createState() => _LoginPageState();
+  _LoginScreenState createState() => _LoginScreenState();
 }
 
-class _LoginPageState extends State<LoginPage> {
+class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   String email = '';
   String password = '';
