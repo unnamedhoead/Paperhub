@@ -1,23 +1,11 @@
-/// PaperHub 搜索页
-///
-/// 职责与交互：
-/// - 提供统一的搜索入口（关键词/标签/作者），并记录搜索历史。
-/// - 展示热搜榜，支持一键带入搜索框。
-/// - 管理搜索方式切换（`keyword` | `tag` | `author`）。
-/// - 通过 `SearchHistoryService` 持久化搜索历史（底层可基于 SharedPreferences）。
-///
-/// 设计契约（Contract）：
-/// - `_selectedSearchType` 的取值必须在 `_searchTypeOptions` 的 key 集合中。
-/// - 搜索提交时会去除首尾空白；若为空则不提交。
-/// - 历史记录项包括：id（唯一）、keyword、searchType、timestamp（毫秒）。
-/// - UI 仅做演示：提交后 Toast 提示；后续可跳转搜索结果页。
-///
-/// 性能与体验：
-/// - 首次进入加载历史（带 `_isLoading` 占位）。
-/// - 热搜与历史均为轻量列表，使用 `SliverToBoxAdapter` 组成滚动区域。
-///
+// PaperHub 搜索页。
+//
+// 骨架职责：协调状态（搜索类型 / 历史 / 热搜）+ 组合各 search/ 子 Widget。
+// - 搜索入口、搜索方式选择、历史区、热搜区分别由
+//   SearchBarHeader / SearchTypeSelector / SearchHistorySection / HotSearchSection 渲染。
+// - 历史通过 SearchHistoryService 持久化；热搜通过 ApiService.getHotSearches 拉取。
+// - 提交搜索 / 点击历史 / 点击热搜统一走 _recordAndNavigate（写历史 + 跳转结果页）。
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/search_model.dart';
 import '../services/search_history_service.dart';
 import '../services/api_service.dart';
@@ -29,7 +17,7 @@ import 'search_results_screen.dart';
 
 /// 搜索页面（Stateful）
 class SearchScreen extends StatefulWidget {
-  const SearchScreen({Key? key}) : super(key: key);
+  const SearchScreen({super.key});
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -85,10 +73,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _loadHotSearches();
   }
 
-  /// 加载本地搜索历史
-  /// - 设置 `_isLoading` 为 true 以展示加载占位
-  /// - 调用 `SearchHistoryService.getSearchHistory()` 获取历史
-  /// - 结束后恢复 `_isLoading=false` 并渲染历史列表
+  /// 加载本地搜索历史（带 `_isLoading` 占位，完成后渲染列表）。
   Future<void> _loadSearchHistory() async {
     setState(() {
       _isLoading = true;
@@ -102,10 +87,7 @@ class _SearchScreenState extends State<SearchScreen> {
     });
   }
 
-  /// 加载热搜榜单
-  /// - 设置 `_isLoadingHotSearches` 为 true 以展示加载占位
-  /// - 调用 `ApiService.getHotSearches()` 获取热搜
-  /// - 成功后更新热搜列表，失败时显示错误信息
+  /// 加载热搜榜单（带 `_isLoadingHotSearches` 占位；失败写 `_hotSearchesError`）。
   Future<void> _loadHotSearches() async {
     setState(() {
       _isLoadingHotSearches = true;
@@ -162,113 +144,61 @@ class _SearchScreenState extends State<SearchScreen> {
     });
   }
 
-  /// 提交搜索
-  /// 合约：
-  /// - 若输入为空（去除首尾空白）则忽略。
-  /// - 构造 `SearchHistoryItem` 并调用服务层写入，再刷新历史列表。
-  /// - 跳转到搜索结果页面。
-  void _onSearchSubmitted(String value) {
-    if (value.trim().isEmpty) return;
+  /// 写入一次搜索历史并跳转到结果页（提交/点击历史/点击热搜共用）。
+  /// keyword 已去空白且非空；服务层负责去重与计数更新。
+  void _recordAndNavigate(String keyword, String searchType) {
+    SearchHistoryService.addSearchHistory(
+      SearchHistoryItem(
+        id: SearchHistoryService.generateId(),
+        keyword: keyword,
+        searchType: searchType,
+        timestamp: DateTime.now(),
+      ),
+    ).then((_) => _loadSearchHistory()); // 重新加载历史记录
 
-    // 添加到搜索历史
-    final newHistory = SearchHistoryItem(
-      id: SearchHistoryService.generateId(),
-      keyword: value.trim(),
-      searchType: _selectedSearchType,
-      timestamp: DateTime.now(),
-    );
-
-    SearchHistoryService.addSearchHistory(newHistory).then((_) {
-      _loadSearchHistory(); // 重新加载历史记录
-    });
-
-    // 跳转到搜索结果页面
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => SearchResultsScreen(
-          query: value.trim(),
-          searchType: _selectedSearchType,
+          query: keyword,
+          searchType: searchType,
         ),
       ),
     );
   }
 
-  /// 点击历史记录项：
-  /// - 将其 keyword 与 searchType 回填到输入框与当前搜索类型
-  /// - 主动请求输入框获取焦点，便于用户直接编辑/提交
-  /// - 保存到搜索历史（作为一次新的搜索）
-  /// - 直接跳转到搜索结果页面
+  /// 提交搜索：去空白后非空则写历史并跳转，使用当前搜索类型。
+  void _onSearchSubmitted(String value) {
+    final keyword = value.trim();
+    if (keyword.isEmpty) return;
+    _recordAndNavigate(keyword, _selectedSearchType);
+  }
+
+  /// 点击历史记录项：回填关键词与其搜索类型、聚焦输入框，再写历史并跳转。
   void _onHistoryItemTap(SearchHistoryItem item) {
-    final trimmedKeyword = item.keyword.trim();
-    if (trimmedKeyword.isEmpty) return; // 如果关键词为空，不处理
+    final keyword = item.keyword.trim();
+    if (keyword.isEmpty) return;
 
     setState(() {
-      _searchController.text = trimmedKeyword;
+      _searchController.text = keyword;
       _selectedSearchType = item.searchType;
     });
     _searchFocusNode.requestFocus();
 
-    // 添加到搜索历史（作为一次新的搜索，服务层会处理去重和计数更新）
-    final newHistory = SearchHistoryItem(
-      id: SearchHistoryService.generateId(),
-      keyword: trimmedKeyword,
-      searchType: item.searchType,
-      timestamp: DateTime.now(),
-    );
-
-    SearchHistoryService.addSearchHistory(newHistory).then((_) {
-      _loadSearchHistory(); // 重新加载历史记录
-    });
-
-    // 直接跳转到搜索结果页面
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => SearchResultsScreen(
-          query: trimmedKeyword,
-          searchType: item.searchType,
-        ),
-      ),
-    );
+    _recordAndNavigate(keyword, item.searchType);
   }
 
-  /// 点击热搜项：
-  /// - 回填标题到输入框（不改变当前搜索类型）
-  /// - 保存到搜索历史（使用当前搜索类型）
-  /// - 直接跳转到搜索结果页面（使用当前搜索类型）
+  /// 点击热搜项：回填标题（保持当前搜索类型）、聚焦输入框，再写历史并跳转。
   void _onHotSearchTap(HotSearchItem item) {
-    final trimmedKeyword = item.title.trim();
-    if (trimmedKeyword.isEmpty) return; // 如果关键词为空，不处理
+    final keyword = item.title.trim();
+    if (keyword.isEmpty) return;
 
     setState(() {
-      _searchController.text = trimmedKeyword;
-      // 不设置_selectedSearchType，保持用户当前选择的搜索类型
+      _searchController.text = keyword; // 不改变 _selectedSearchType
     });
     _searchFocusNode.requestFocus();
 
-    // 添加到搜索历史（使用当前搜索类型，而不是热搜条目记录的搜索类型）
-    final newHistory = SearchHistoryItem(
-      id: SearchHistoryService.generateId(),
-      keyword: trimmedKeyword,
-      searchType: _selectedSearchType, // 使用当前搜索类型
-      timestamp: DateTime.now(),
-    );
-
-    SearchHistoryService.addSearchHistory(newHistory).then((_) {
-      _loadSearchHistory(); // 重新加载历史记录
-    });
-
-    // 直接跳转到搜索结果页面（使用当前搜索类型）
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => SearchResultsScreen(
-          query: trimmedKeyword,
-          searchType: _selectedSearchType, // 使用当前搜索类型
-        ),
-      ),
-    );
+    _recordAndNavigate(keyword, _selectedSearchType);
   }
 
   /// 清空全部历史记录
