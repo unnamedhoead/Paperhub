@@ -1,37 +1,8 @@
 import 'dart:convert';
 
+import '../models/browse_history_item.dart';
 import '../services/api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-/// 单条浏览历史记录
-class BrowseHistoryItem {
-  final String postId;
-  final String title;
-  final int timestamp; // 浏览时间（毫秒）
-
-  BrowseHistoryItem({
-    required this.postId,
-    required this.title,
-    required this.timestamp,
-  });
-
-  Map<String, dynamic> toMap() {
-    return {
-      'postId': postId,
-      'title': title,
-      'timestamp': timestamp,
-    };
-  }
-
-  factory BrowseHistoryItem.fromMap(Map<String, dynamic> map) {
-    return BrowseHistoryItem(
-      postId: map['postId']?.toString() ?? '',
-      title: map['title']?.toString() ?? '',
-      timestamp: (map['timestamp'] as num?)?.toInt() ??
-          DateTime.now().millisecondsSinceEpoch,
-    );
-  }
-}
 
 /// 浏览历史服务：
 /// - 优先调用后端 API，若失败回退到本地 SharedPreferences 缓存。
