@@ -22,6 +22,8 @@ import '../utils/dialog_utils.dart';
 import 'post_detail/post_content.dart';
 import 'post_detail/post_actions.dart';
 import 'post_detail/post_detail_controller.dart';
+import 'post_detail/post_interaction_controller.dart';
+import 'post_detail/post_comment_controller.dart';
 
 import 'post_detail/post_media.dart';
 
@@ -145,19 +147,23 @@ class _PostDetailScreenState extends State<PostDetailScreen>
   // 本 State 只保留 UI 资源（输入框 / 焦点 / 动画 / 翻页）、@提及输入状态与图片全屏 UI 状态。
   late final PostDetailController _controller;
 
+  // 子控制器快捷访问。
+  PostInteractionController get _interaction => _controller.interaction;
+  PostCommentController get _comm => _controller.commentController;
+
   // 下列 getter 桥接到 controller，避免改动大量 _build* 引用点。
-  bool get isLiked => _controller.isLiked;
-  bool get isSaved => _controller.isSaved;
-  int get likeCount => _controller.likeCount;
-  Comment? get _currentReplyTo => _controller.currentReplyTo;
-  String? get _currentReplyParentId => _controller.currentReplyParentId;
-  List<Comment> get _comments => _controller.comments;
-  bool get _isLoadingComments => _controller.isLoadingComments;
-  bool get _hasMoreComments => _controller.hasMoreComments;
+  bool get isLiked => _interaction.isLiked;
+  bool get isSaved => _interaction.isSaved;
+  int get likeCount => _interaction.likeCount;
+  Comment? get _currentReplyTo => _comm.currentReplyTo;
+  String? get _currentReplyParentId => _comm.currentReplyParentId;
+  List<Comment> get _comments => _comm.comments;
+  bool get _isLoadingComments => _comm.isLoadingComments;
+  bool get _hasMoreComments => _comm.hasMoreComments;
   bool get _isDeleting => _controller.isDeleting;
   String? get _currentUserId => _controller.currentUserId;
-  bool? get _isFollowingAuthor => _controller.isFollowingAuthor;
-  bool get _followInFlight => _controller.followInFlight;
+  bool? get _isFollowingAuthor => _interaction.isFollowingAuthor;
+  bool get _followInFlight => _interaction.followInFlight;
   String? get _currentPostStatus => _controller.currentPostStatus;
   double? get _actualImageWidth => _controller.actualImageWidth;
   double? get _actualImageHeight => _controller.actualImageHeight;
@@ -1033,7 +1039,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
 
   void _startReply(Comment comment, {String? parentId}) {
     // 回复目标（数据）交给 controller；输入框文本与 @提及状态留在 State。
-    _controller.startReply(comment, parentId: parentId);
+    _comm.startReply(comment, parentId: parentId);
     setState(() {
       _commentController.text = '';
       // 重置@功能状态
@@ -1048,7 +1054,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
   }
 
   void _cancelReply() {
-    _controller.cancelReply();
+    _comm.cancelReply();
     setState(() {
       _commentController.text = '';
       // 重置@功能状态
@@ -1091,7 +1097,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
     // 清空已选择的 @用户列表（与原逻辑一致：提交前先清）。
     _selectedMentions.clear();
 
-    final ok = await _controller.submitComment(
+    final ok = await _comm.submitComment(
       text: text,
       mentionIds: mentionIds,
       parentId: parentId,
@@ -1213,7 +1219,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                 ),
                 onPressed: _isLoadingComments
                     ? null
-                    : () => _controller.loadComments(refresh: true),
+                    : () => _comm.loadComments(refresh: true),
                 tooltip: '刷新评论',
               ),
             ],
@@ -1234,7 +1240,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                   child: _isLoadingComments
                       ? CircularProgressIndicator(color: scheme.primary)
                       : TextButton.icon(
-                          onPressed: () => _controller.loadComments(),
+                          onPressed: () => _comm.loadComments(),
                           icon: Icon(
                             Icons.refresh,
                             color: scheme.onSurfaceVariant,
@@ -1248,7 +1254,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
               );
             }
             final c = _comments[idx];
-            final inFlight = _controller.isCommentLikeInFlight(c.id);
+            final inFlight = _comm.isCommentLikeInFlight(c.id);
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1331,7 +1337,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                             ),
                             onPressed: inFlight
                                 ? null
-                                : () => _controller.handleCommentLikePressed(c),
+                                : () => _comm.handleCommentLikePressed(c),
                           ),
                         ],
                       ),
@@ -1344,7 +1350,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                     padding: const EdgeInsets.only(left: 56.0),
                     child: Column(
                       children: c.replies.map((reply) {
-                        final replyInFlight = _controller.isCommentLikeInFlight(
+                        final replyInFlight = _comm.isCommentLikeInFlight(
                           reply.id,
                         );
                         return ListTile(
@@ -1438,8 +1444,9 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                                     ),
                                     onPressed: replyInFlight
                                         ? null
-                                        : () => _controller
-                                              .handleCommentLikePressed(reply),
+                                        : () => _comm.handleCommentLikePressed(
+                                            reply,
+                                          ),
                                   ),
                                 ],
                               ),
@@ -2417,7 +2424,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                     isHoveringImage: _isHoveringImage,
                     showBigHeart: _showBigHeart,
                     heartScale: _heartScale,
-                    onDoubleTap: _controller.handlePostLikePressed,
+                    onDoubleTap: _interaction.handlePostLikePressed,
                     onImageTap: _toggleImageFullscreen,
                     onNextImage: _goToNextImage,
                     onPreviousImage: _goToPreviousImage,
@@ -2442,7 +2449,7 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                     pdfMedia: _pdfMedia,
                     onAuthorTap: () =>
                         _openUserProfile(widget.post.author.id),
-                    onToggleFollow: _controller.toggleFollow,
+                    onToggleFollow: _interaction.toggleFollow,
                     onTagTap: _onTagTap,
                     onOpenPdfPreview: _openPdfPreview,
                     onDownloadPdf: _downloadPdf,
@@ -2455,10 +2462,10 @@ class _PostDetailScreenState extends State<PostDetailScreen>
                     isLiked: isLiked,
                     likeCount: likeCount,
                     isSaved: isSaved,
-                    onLike: _controller.handlePostLikePressed,
+                    onLike: _interaction.handlePostLikePressed,
                     onComment: () =>
                         FocusScope.of(context).requestFocus(FocusNode()),
-                    onSave: _controller.toggleSave,
+                    onSave: _interaction.toggleSave,
                     onShare: _onShare,
                   ),
                   _buildCommentsSection(),
