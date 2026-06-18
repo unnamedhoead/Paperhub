@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paperhub 重构交接 Handoff</title>
+<style>
+  :root{
+    --bg:#fff; --fg:#1f2328; --muted:#6b7280; --border:#e5e7eb;
+    --blue:#2563eb; --green:#16a34a; --amber:#d97706; --red:#dc2626; --purple:#7c3aed;
+    --code-bg:#f6f8fa; --soft:#f8f9fa;
+  }
+  *{box-sizing:border-box}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    color:var(--fg);line-height:1.7;max-width:1080px;margin:0 auto;padding:32px 24px 80px;background:var(--bg)}
+  h1{font-size:28px;margin:0 0 4px}
+  h2{font-size:21px;margin:36px 0 12px;padding-top:14px;border-top:2px solid var(--border)}
+  h3{font-size:16px;margin:20px 0 8px}
+  .subtitle{color:var(--muted);font-size:14px;margin-bottom:20px}
+  code{background:var(--code-bg);padding:1px 6px;border-radius:4px;font-size:13px;
+    font-family:"SF Mono",Monaco,Consolas,monospace}
+  pre{background:var(--code-bg);border:1px solid var(--border);border-radius:8px;padding:14px 16px;
+    overflow-x:auto;font-size:12.5px;line-height:1.55;font-family:"SF Mono",Monaco,Consolas,monospace}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:13.5px}
+  th,td{border:1px solid var(--border);padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:var(--soft);font-weight:600}
+  .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:18px 0}
+  .kpi{border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center}
+  .kpi .num{font-size:24px;font-weight:700}
+  .kpi .label{font-size:12px;color:var(--muted);margin-top:2px}
+  .kpi.green .num{color:var(--green)} .kpi.blue .num{color:var(--blue)} .kpi.amber .num{color:var(--amber)}
+  .chip{display:inline-block;font-size:11.5px;font-weight:600;padding:1px 8px;border-radius:10px;white-space:nowrap}
+  .chip-g{background:#dcfce7;color:#166534} .chip-y{background:#fef3c7;color:#92400e}
+  .chip-r{background:#fee2e2;color:#991b1b} .chip-b{background:#dbeafe;color:#1e40af}
+  .chip-p{background:#ede9fe;color:#5b21b6}
+  .box{border:1px solid var(--border);border-left:4px solid var(--blue);border-radius:8px;padding:12px 16px;margin:14px 0;background:#f9fbff}
+  .box.warn{border-left-color:var(--amber);background:#fffbf2}
+  .box.good{border-left-color:var(--green);background:#f3fbf5}
+  .lead{color:var(--muted);font-size:14px}
+  ul{margin:6px 0 6px 0;padding-left:22px} li{margin:3px 0}
+  a{color:var(--blue)}
+  .toc{columns:2;font-size:14px;background:var(--soft);border:1px solid var(--border);border-radius:8px;padding:14px 22px}
+  .toc a{text-decoration:none}
+  .small{font-size:12.5px;color:var(--muted)}
+  footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--border);color:var(--muted);font-size:12.5px}
+</style>
+</head>
+<body>
+
+<h1>🤝 Paperhub 重构交接 Handoff</h1>
+<p class="subtitle">日期 2026-06-18 · 远程 <code>github.com/unnamedhoead/Paperhub</code> · 重构基线 <code>main@a4f900f</code> · 交付分支 <code>refactor-all</code> / <code>refactor/wave1-2-full</code></p>
+
+<div class="box">
+<b>一句话:</b> 后端 + 前端的「上帝文件 + 安全 + 测试」重构已整体完成(<b>426 个测试全绿、0 编译错误</b>),并按最初的 7 人分工纵向切好。这份文档告诉你:<b>① 现在做了什么 ② 没做什么 ③ 怎么把"你那一份"喂给 Agent 写报告 ④ 还能从哪继续 refactor。</b>
+</div>
+
+<div class="kpi-grid">
+  <div class="kpi green"><div class="num">426</div><div class="label">测试全绿(前 191 + 后 235)</div></div>
+  <div class="kpi"><div class="num">0</div><div class="label">analyze / 编译错误</div></div>
+  <div class="kpi blue"><div class="num">6</div><div class="label">Checkpoint 提交</div></div>
+  <div class="kpi"><div class="num">10</div><div class="label">上帝文件全拆</div></div>
+  <div class="kpi"><div class="num">19</div><div class="label">后端 feature 包</div></div>
+  <div class="kpi amber"><div class="num">~3.59M</div><div class="label">Agent Token 累计</div></div>
+</div>
+
+<h2 id="toc">0 · 怎么用这份文档</h2>
+<div class="toc">
+<a href="#done">1 · 现在做了什么(总览)</a><br>
+<a href="#branch">2 · 两条交付分支 &amp; 怎么浏览</a><br>
+<a href="#person">3 · 按 7 人分工:谁的活做完了 / 落在哪</a><br>
+<a href="#feed">4 · ⭐ 怎么把"你的 refactor"喂给 Agent 写报告</a><br>
+<a href="#undone">5 · 没做 / 主动推迟的事(诚实清单)</a><br>
+<a href="#next">6 · 还想继续 refactor,从哪下手</a><br>
+<a href="#lessons">7 · 关键经验与坑(避免重蹈)</a><br>
+<a href="#docs">8 · 文档索引</a>
+</div>
+
+<h2 id="done">1 · 现在做了什么(总览)</h2>
+<ul>
+<li><b>P0 安全闭环</b>:<code>SecurityConfig</code> 从"默认放行"改为默认拒绝匿名 + 公共/私有端点白名单 + 完整性测试;统一异常 <code>GlobalExceptionHandler</code>;新建 <code>common/</code>(<code>ApiResponse</code> + 5 个异常基类 + <code>PermissionUtils</code>)。</li>
+<li><b>10 个上帝文件全部"真拆分"</b>(真 Widget / 真 ChangeNotifier / 纯函数,<b>禁止</b> <code>extension on _State</code> 或 <code>part of</code> 充数):post_detail 4431→473、admin 3053→230、profile 2312→facade、note_editor 2284→ChangeNotifier、message 1684、message_bubble 1257→8 子类、home 1405→230、search 750→297、chat 610→287、follow 851→178 …</li>
+<li><b>api_service.dart(2161 行 / 115 方法)拆成 12 个域 API</b>(<code>services/api/*_api.dart</code>)+ 统一 <code>http_client</code>(401 单飞刷新,20 个测试)。</li>
+<li><b>main.dart 拆</b> <code>app.dart / router.dart / theme.dart / bootstrap.dart</code>;<code>pages/</code> 全迁入 <code>screens/auth/</code>(文件 + 类名统一 <code>*Screen</code>)。</li>
+<li><b>状态管理统一</b>为 <code>ChangeNotifier</code> 约定(见 <code>state-management-convention.md</code>),已落地 home/profile/post_detail/note_editor/admin/follow 等。</li>
+<li><b>测试从 ~10 → 426</b>:后端 JUnit + <code>@WebMvcTest</code> 切片(H2 profile)235;前端 controller/纯函数/widget/service 191。</li>
+<li><b>经两轮独立 review</b>(codex 额度耗尽时用只读 review agent 替代):抓出并修复 1 个编译级阻断 + 多个建议,最终 SHIP。</li>
+</ul>
+
+<h2 id="branch">2 · 两条交付分支 &amp; 怎么浏览</h2>
+<p class="lead">两条分支<b>最终代码完全一致</b>(树逐字节相同),只是打包粒度不同。都已推到 origin。</p>
+<table>
+<tr><th>分支</th><th>形态</th><th>用途</th><th>领先 main</th></tr>
+<tr><td><code>refactor-all</code></td><td><b>6 个 checkpoint 大提交</b>(基于 <code>p1-infra-foundation</code>)</td><td>👉 review / 合 main 用这个,干净</td><td>7 commits</td></tr>
+<tr><td><code>refactor/wave1-2-full</code></td><td>146 个细 commit + <code>cp1</code>~<code>cp6</code> 六个 tag</td><td>想看每一步细节用这个</td><td>146 commits</td></tr>
+</table>
+
+<h3><code>refactor-all</code> 的 6 个 checkpoint(每个 = 一个阶段)</h3>
+<table>
+<tr><th>提交</th><th>阶段</th><th>规模</th><th>对应 tag(细分支)</th></tr>
+<tr><td><code>470fa5c</code></td><td>CP1 Wave1 后端重构(228)</td><td>200 files</td><td><code>cp1-wave1-backend</code> → 9c69249</td></tr>
+<tr><td><code>d6a8375</code></td><td>CP2 Wave2 前端初拆(101)</td><td>95 files</td><td><code>cp2-wave2-frontend-initial</code> → 6abcfdf</td></tr>
+<tr><td><code>b9faaa8</code></td><td>CP3 P0 安全闭环(235)</td><td>4 files</td><td><code>cp3-p0-security</code> → 4e5e052</td></tr>
+<tr><td><code>8b03b7c</code></td><td>CP4 P2 二轮全部上帝文件 ≤300(137)</td><td>53 files</td><td><code>cp4-p2-godfiles</code> → ed90226</td></tr>
+<tr><td><code>5202b24</code></td><td>CP5 G1+G10 真拆分 + N1 修复(186)</td><td>43 files</td><td><code>cp5-g1-g10-split</code> → 86dc856</td></tr>
+<tr><td><code>0bf748c</code></td><td>CP6 Stage5 收尾 + 共审(191+235)</td><td>18 files</td><td><code>cp6-stage5-final</code> → 537ae0a</td></tr>
+</table>
+<pre>git fetch origin
+git checkout refactor-all          # 看 6 个大提交
+git log --oneline main..refactor-all
+git show 8b03b7c                   # 看某个 checkpoint 的全量 diff
+# 或看细粒度历史:
+git checkout refactor/wave1-2-full
+git checkout cp4-p2-godfiles       # 跳到某个 tag 里程碑</pre>
+
+<h2 id="person">3 · 按 7 人分工:谁的活做完了 / 落在哪</h2>
+<p class="lead">下表把已做工作映射回最初《7 人分工方案》的纵向切片。<span class="chip chip-g">完成</span> = 该域重构 + 测试已落地;<span class="chip chip-y">部分</span> = 主体完成、列出的子项推迟。</p>
+
+<table>
+<tr><th>域 / 负责人</th><th>状态</th><th>后端落地</th><th>前端落地</th><th>本域未完(推迟)</th></tr>
+
+<tr>
+<td><b>P1 基础设施与安全</b><br>张云夏</td>
+<td><span class="chip chip-y">部分</span></td>
+<td><code>config/</code> 安全链收紧 + <code>GlobalExceptionHandler</code>;新建 <code>common/</code>(ApiResponse + Api/NotFound/Forbidden/Unauthorized/BadRequest 异常 + PermissionUtils);<code>jwt/</code></td>
+<td><code>main.dart</code>→<code>app/router/theme/bootstrap</code>;<code>http_client</code>(401 单飞,20 测试);<code>config/app_env.dart</code>;ChangeNotifier 约定</td>
+<td>GoRouter/深链接(I5)、Provider 树(I6)用了 bare ChangeNotifier 代替;<code>application.properties</code> 全面外置待复核(ObsConfig 已外置)</td>
+</tr>
+
+<tr>
+<td><b>P2 认证与用户</b><br>盛曦</td>
+<td><span class="chip chip-g">完成</span></td>
+<td><code>auth/</code>(User Lombok 化、AuthService 下沉、refresh 语义、UserRole/Status 枚举);<code>user/</code> 拆分;<code>notify/MailService</code></td>
+<td><code>screens/auth/*</code>(5 页迁移 + 类名 <code>*Screen</code>);<code>screens/profile/*</code>(12 文件:骨架+header+tabs+edit+ProfileViewController);<code>auth_api</code>/<code>user_api</code></td>
+<td>—</td>
+</tr>
+
+<tr>
+<td><b>P3 帖子 + arXiv</b><br>屈越【最重】</td>
+<td><span class="chip chip-g">完成</span></td>
+<td><code>post/</code> 控制器/服务拆分 + DTO;<code>arxiv/</code>(ArxivProxyService + ArxivMetadataAdapter + DTO,XML→JSON)</td>
+<td><code>screens/post_detail/*</code>(16 文件:473 骨架 + PostDetailController + 交互/评论子控制器 + CommentTreeOps 纯函数);<code>screens/note_editor/*</code>(14 文件:ChangeNotifier + 3 mixin + 无状态 NotePublishService,publishNote 5 DI 测试);<code>post_api</code>/<code>arxiv_api</code></td>
+<td>WebSocket URL 仍用旧 <code>ws:${apiBaseUrl}</code> 写法(非回归,切 <code>wsBaseUrl</code> 属行为变更)</td>
+</tr>
+
+<tr>
+<td><b>P4 互动系统</b><br>郑以琳</td>
+<td><span class="chip chip-g">完成</span></td>
+<td><code>comment/ like/ favorite/ follow/ notification/</code> 服务拆分 + 交互模板</td>
+<td><code>widgets/comment/</code>;<code>screens/follow_list_screen</code>+<code>screens/follow/</code>(851→178);<code>screens/message/notification_list</code>(1031→5 文件);FollowController;<code>interaction/comment/follow/notification_api</code></td>
+<td>—</td>
+</tr>
+
+<tr>
+<td><b>P5 聊天 + WebSocket</b><br>陈佳怡</td>
+<td><span class="chip chip-g">完成</span></td>
+<td><code>chat/</code> 服务拆分;<code>websocket/</code> 推送基础设施</td>
+<td><code>chat_screen</code>(610→287,轮询→WS);<code>screens/message/*</code>(7 文件);<code>widgets/message/*</code>(message_bubble 1257→8 子类);<code>chat_input</code>→3;<code>share_bubble</code>(483→186);<code>chat_api</code></td>
+<td>—</td>
+</tr>
+
+<tr>
+<td><b>P6 后台管理 + 举报</b><br>待定(第 7 位)</td>
+<td><span class="chip chip-g">完成</span></td>
+<td><code>admin/</code> 控制器按对象拆 + <code>@PreAuthorize</code>;<code>report/</code> 两套举报合并、状态枚举统一</td>
+<td><code>screens/admin/*</code>(13 文件:各 Section + admin_controller,3053→230);6 个 bug 修复;<code>report_post_dialog</code>;<code>admin_api</code>/<code>report_api</code></td>
+<td>—</td>
+</tr>
+
+<tr>
+<td><b>P7 浏览与检索</b><br>王杏</td>
+<td><span class="chip chip-g">完成</span></td>
+<td><code>history/</code>(BrowseHistory 容量裁剪 bug 修复 + DTO);<code>hot/</code></td>
+<td><code>home_screen</code>(1405→230 + <code>screens/home/</code> 8 文件:HomeController+2 子控制器+FeedWidget);<code>search_screen</code>(750→297 + <code>screens/search/</code> 5);<code>LocalJsonListStore&lt;T&gt;</code>;<code>history/search/hot_api</code></td>
+<td>—</td>
+</tr>
+</table>
+
+<h2 id="feed">4 · ⭐ 怎么把"你的 refactor"喂给 Agent 写报告</h2>
+<p class="lead">核心思路:<b>用文件路径把"你那一份"的 commit 和 diff 切出来</b>,连同背景文档一起喂给 Agent,让它替你写个人重构报告。三步走。</p>
+
+<h3>第 1 步 · 取出你域的 commit 与 diff(把路径换成你的)</h3>
+<p>每个人的"路径集"见下表(取自分工附录 A,即"文件→负责人")。</p>
+<table>
+<tr><th>人</th><th>后端路径(<code>Backend/paperhub/src/main/java/com/example/paperhub/</code> 下)</th><th>前端路径(<code>Frontend/lib/</code> 下)</th><th>改动 commit</th></tr>
+<tr><td>P1 张云夏</td><td><code>config/ jwt/ common/ PaperhubApplication.java</code></td><td><code>main.dart app.dart router.dart theme.dart bootstrap.dart config/ constants/ utils/ services/core/ services/local_storage.dart widgets/bottom_navigation.dart</code></td><td><a href="#cm-p1"><b>8 条</b> ↓</a></td></tr>
+<tr><td>P2 盛曦</td><td><code>auth/ user/ notify/</code></td><td><code>screens/auth/ screens/profile/ screens/privacy_settings_screen.dart models/user_profile.dart models/user_summary.dart services/api/auth_api.dart services/api/user_api.dart</code></td><td><a href="#cm-p2"><b>16 条</b> ↓</a></td></tr>
+<tr><td>P3 屈越</td><td><code>post/ arxiv/</code></td><td><code>screens/post_detail/ screens/note_editor/ widgets/post_card.dart widgets/pdf_iframe_view*.dart models/post_model.dart services/arxiv_service.dart services/api/post_api.dart services/api/arxiv_api.dart</code></td><td><a href="#cm-p3"><b>22 条</b> ↓</a></td></tr>
+<tr><td>P4 郑以琳</td><td><code>comment/ like/ favorite/ follow/ notification/</code></td><td><code>widgets/comment/ screens/follow_list_screen.dart screens/follow/ screens/message/notification_list.dart services/unread_service.dart services/notification_websocket_service.dart services/api/interaction_api.dart services/api/comment_api.dart services/api/follow_api.dart services/api/notification_api.dart</code></td><td><a href="#cm-p4"><b>12 条</b> ↓</a></td></tr>
+<tr><td>P5 陈佳怡</td><td><code>chat/ websocket/</code></td><td><code>screens/chat_screen.dart screens/message/ widgets/message_bubble.dart widgets/message/ widgets/chat_input.dart widgets/conversation_item.dart models/conversation_model.dart models/message_model.dart services/chat_service.dart services/api/chat_api.dart</code></td><td><a href="#cm-p5"><b>17 条</b> ↓</a></td></tr>
+<tr><td>P6 待定</td><td><code>admin/ report/</code></td><td><code>screens/admin/ widgets/report_post_dialog.dart services/api/admin_api.dart services/api/report_api.dart</code></td><td><a href="#cm-p6"><b>8 条</b> ↓</a></td></tr>
+<tr><td>P7 王杏</td><td><code>history/ hot/</code></td><td><code>screens/home_screen.dart screens/home/ screens/zone_screen.dart screens/search_screen.dart screens/search/ screens/search_results_screen.dart models/search_model.dart services/browse_history_service.dart services/search_history_service.dart utils/local_json_list_store.dart services/api/history_api.dart services/api/search_api.dart services/api/hot_api.dart</code></td><td><a href="#cm-p7"><b>23 条</b> ↓</a></td></tr>
+</table>
+
+<h3>各域实际改动的 commit(取自 <code>refactor/wave1-2-full</code> 细粒度历史,<code>git log origin/main..refactor/wave1-2-full -- &lt;你的路径&gt;</code>)</h3>
+<p class="small">说明:<b>跨域 commit 会同时出现在多个域下</b>——它们确实改了该域文件,如 <code>79a0e8b</code>(拆 ApiService 为 9 域,几乎人人有份)、<code>78d1ba8</code>(D8 错误处理日志,跨 5 域)、<code>215de93</code>(note_editor 迁移连带 FeedWidget/相对路径)、各 <code>merge</code> 提交。写你的报告时聚焦"主体 refactor",跨域项一笔带过即可。点开看你那份:</p>
+
+<details id="cm-p1"><summary><b>P1 基础设施与安全</b> — 8 条</summary><pre>bae58d8  refactor: 完成 P1 基础设施收尾
+fb92762  fix: 全局异常处理不再把 NoResourceFoundException 吞成 500
+ef08991  chore: pages/ 迁移到 screens/auth/ (5 个 auth page)
+f7e90b8  fix: 收紧 SecurityConfig 安全链 (S1) — 默认拒绝匿名 + 白名单完整性测试
+b609d14  refactor: 抽泛型 LocalJsonListStore  ← 实际归 P7,因落在 utils/ 故也命中
+86dc856  fix: 补 N1 重命名遗漏的 import 引用 (router/profile_screen)
+78d1ba8  refactor: D8/D9/D10 消除前端静默吞异常 (跨域)
+ba04a5c  refactor: auth 页面类名 *Page→*Screen (跨 P2)</pre></details>
+
+<details id="cm-p2"><summary><b>P2 认证与用户</b> — 16 条</summary><pre>bae58d8  refactor: 完成 P1 基础设施收尾 (含 auth 收尾)
+9687a2b  refactor: auth/user 控制器拆分 + User Lombok 化 + DTO 独立文件
+79a0e8b  refactor: 拆分 ApiService 为 9 个域 API 类 + facade (跨域)
+ef08991  chore: pages/ 迁移到 screens/auth/ (5 个 auth page)
+479aa3d  refactor: auth 页面改用 AuthApi/UserApi 替代 ApiService，移除 print()
+e3d941d  refactor: UserProfile role/status → UserRole/UserStatus 枚举 + 17 测试
+53e7fad  refactor: 拆分 profile_screen.dart(2312) 为 profile/ 5 文件 + export facade
+3e03715  fix: profile→admin 引用路径更新 (AdminModeScreen→AdminScreen)
+215de93  refactor: note_editor 迁移到 screens/note_editor/ (跨 P3)
+0097a55  fix: P3 note_editor cherry-pick 导入路径修复 (跨域)
+867e16b  refactor: profile_screen 二轮拆分抽 5 个独立 Widget
+bfb4048  refactor: profile_screen 二轮瘦身至 290 行 (ProfileViewController)
+d260ad9  refactor: N1 auth页面 _page→_screen 后缀统一 + N2 删空 re-export
+86dc856  fix: 补 N1 重命名遗漏的 import 引用 (跨 P1)
+78d1ba8  refactor: D8/D9/D10 消除前端静默吞异常 (跨域)
+ba04a5c  refactor: auth 页面类名 *Page→*Screen，与文件名统一</pre></details>
+
+<details id="cm-p3"><summary><b>P3 帖子创作/详情 + arXiv</b> — 22 条(最重)</summary><pre>0eb7b5e  refactor: 拆分 post/arxiv 域为多层架构(controller+service+dto)
+47bb21b  fix: 修复审查发现的 3 个阻断项 (follow路径 + 丢失端点 / SecurityException→500)
+79a0e8b  refactor: 拆分 ApiService 为 9 个域 API 类 + facade (跨域)
+960d1f9  refactor: 创建 ArxivApi + arxiv_service 代理地址改用 AppEnv.apiBaseUrl
+215de93  refactor: note_editor 迁移到 screens/note_editor/ + 拆分 + bug修复
+1cf20a5  refactor: 机械拆分 post_detail content/media/actions 子文件
+4c42058  refactor: post_actions extension → PostActionsBar 独立 Widget
+ab9798a  refactor: post_content extension → PostContentView 独立 Widget
+a0f8e4f  refactor: post_media extension → PostMediaGallery 独立 Widget
+5897dde  refactor: post_detail 抽 PostDetailController (ChangeNotifier)
+4fd1f00  refactor: PostDetailController 拆编排层 + 互动/评论子控制器 + 评论树纯函数
+ab79f3c  refactor: 抽出 PostCommentInputBar 独立 Widget (评论输入 + @提及)
+0cfd03e  refactor: 抽出 PostCommentsSection 独立 Widget (评论列表 + @提及渲染)
+ec5dbcb  refactor: G10 note_editor_controller → NoteEditorController extends ChangeNotifier
+1033982  refactor: 把 PdfPreviewScreen / ShareUserSelectionSheet 移出 post_detail
+57e92b8  refactor: 抽出图片全屏浮层与帖子状态视图 Widget
+20aa30c  refactor: 抽出 PostActionsHandler，post_detail_screen 降到 ≤500 行
+f104409  refactor: 抽出 MentionUserStrip，瘦身 PostCommentInputBar
+d9f50a1  merge: G1 post_detail 骨架 2768→473 + PostDetailController + 12 文件 + 21 单测
+ca2ecca  refactor: 统一 ReportStatus + 拆 AdminDtos/ReportPostDtos (跨 P6,命中 post DTO)
+0a639e8  merge: P6 admin/report 重构并入 (跨域 merge)
+78d1ba8  refactor: D8/D9/D10 消除前端静默吞异常 (跨域)</pre></details>
+
+<details id="cm-p4"><summary><b>P4 互动系统(comment/like/favorite/follow/notification)</b> — 12 条</summary><pre>9c1c0c4  refactor: follow 域独立控制器 + SLF4J + 测试
+6e425dd  refactor: comment 域批量删除替代递归 + SLF4J + 异常规范化 + 测试
+0135fb0  refactor: like 域原子SQL计数 + 不吞异常 + SLF4J + 测试
+48e98e7  refactor: favorite 域 toggleFavorite 统一 + 原子SQL + SLF4J + 测试
+5d33d61  refactor: notification 域拆 PushService + buildAndSave + DTO record + 测试
+47bb21b  fix: 修复审查 3 个阻断项 (follow 路径 + 丢失端点)
+79a0e8b  refactor: 拆分 ApiService 为 9 个域 API 类 + facade (跨域)
+0ca52eb  refactor: 从 PostDetail 切出评论 UI 小组件 + follow/notification API 文件
+0791c17  refactor: 抽 FollowController + 通知列表独立页 (notification_list)
+18d91e7  refactor: notification_list.dart 改为 re-export barrel file
+e94d2df  refactor: follow_list_screen 二轮拆分为 screens/follow/ 独立 Widget
+a0ab38f  refactor: follow_controller 移入 screens/follow/ 目录 (N4)</pre></details>
+
+<details id="cm-p5"><summary><b>P5 即时通讯 + WebSocket</b> — 17 条</summary><pre>fb2cadb  refactor: 提取 WebSocket 消息类到 websocket/message/ 独立 POJO
+5a84ee5  refactor: WebSocket handler/service 重构(广播合并、多设备、心跳、SLF4J)
+084e639  refactor: Chat 域重构(构造器注入、doSendMessage 内核、N+1 修复、禁言过期)
+79a0e8b  refactor: 拆分 ApiService 为 9 个域 API 类 + facade (跨域)
+0791c17  refactor: 抽 FollowController + 通知列表独立页 (跨 P4)
+b62780d  refactor: message_bubble 按消息类型拆分为 7 个子类文件
+e0bd50f  refactor: chat_input 拆分为 attachment_picker + audio_recorder_button
+10ea8bc  refactor: message_screen 拆分为 screens/message/ 子目录
+f48d963  refactor: chat_screen 2s 轮询改为 ChatWebSocketService 推送 + 去死代码
+1009784  merge: P5 前端 chat/ws 重构并入 (notification_list 保留 P4 版本)
+215de93  refactor: note_editor 迁移到 screens/note_editor/ (跨域)
+0097a55  fix: P3 note_editor cherry-pick 导入路径修复 (跨域)
+31243e0  refactor: 拆出 4 个通知子页面文件 (赞和收藏/新增关注/评论和@/发现)
+18d91e7  refactor: notification_list.dart 改为 re-export barrel file (跨 P4)
+4081ed2  refactor: chat_screen 二轮拆分为独立 Widget (610→287)
+c296d20  refactor: share_bubble 抽离 SharePostCard 到独立文件 (483→186)
+78d1ba8  refactor: D8/D9/D10 消除前端静默吞异常 (跨域)</pre></details>
+
+<details id="cm-p6"><summary><b>P6 后台管理 + 举报</b> — 8 条</summary><pre>ca2ecca  refactor: 统一 ReportStatus 枚举 + 删除死代码 + 拆分 AdminDtos/ReportPostDtos
+05f9702  refactor: 拆分 AdminController 为 5 个子控制器 + 重构 AdminService
+bec85c2  refactor: 合并举报系统 + ReportPostService 拆分 + PostVisibilityPolicy 策略 + 38 测试
+79a0e8b  refactor: 拆分 ApiService 为 9 个域 API 类 + facade (跨域)
+7cd756c  refactor: 拆分 admin_mode_screen(3053) → screens/admin/ 六文件 + controller
+736368e  fix: report_post_dialog 同时检查 statusCode 和 body['success']
+46ae5c0  refactor: admin_post_section 二轮拆分为独立文件 (616→173)
+b6b508b  refactor: admin_controller 二轮拆分为 mixin + utils (590→249)</pre></details>
+
+<details id="cm-p7"><summary><b>P7 内容浏览与检索</b> — 23 条</summary><pre>8ceeabe  fix: 修复 BrowseHistory 容量裁剪从未触发的 bug
+b664591  refactor: history/hot 控制器改用 DTO + 校验 + 统一异常
+79a0e8b  refactor: 拆分 ApiService 为 9 个域 API 类 + facade (跨域)
+d6aff70  refactor: 拆分 home_screen 发现流为 FeedWidget + 提取 BrowseHistoryItem 模型
+b609d14  refactor: 抽泛型 LocalJsonListStore 统一本地 JSON 列表缓存
+87dc6e5  fix: 补回 FeedWidget 的 localStorage 置顶帖消费逻辑并精简代码
+215de93  refactor: note_editor 迁移 (跨域,连带 FeedWidget)
+0097a55  fix: P3 note_editor cherry-pick 导入路径修复 (跨域)
+d314953  refactor: home_screen 抽出 HomeTabBar 独立 Widget
+0531c34  refactor: 抽搜索空/错占位为 SearchEmptyState/SearchErrorState
+c5e5cfb  refactor: home_screen 抽出 FollowingFeed + HomeLoadingIndicator
+11ee95d  refactor: 抽搜索顶栏为 SearchBarHeader 独立 Widget
+1d388aa  refactor: 抽搜索方式选择器为 SearchTypeSelector 独立 Widget
+cfdee2e  refactor: home_screen 抽出 ZoneTab 独立 Widget
+0c4ec42  refactor: 抽搜索历史区为 SearchHistorySection 独立 Widget
+ac2edaf  refactor: home_screen 抽出 HomeBottomNav 独立 Widget
+bee8747  refactor: 抽热搜榜区为 HotSearchSection 独立 Widget
+440578e  refactor: search_screen 瘦身骨架至 297 行 (仅状态协调+组合)
+12f8425  refactor: home_screen 数据逻辑抽到 HomeController (ChangeNotifier)
+33939b3  refactor: HomeController 拆出 Following/Zone 子控制器 (各≤300行)
+24d0c5d  chore: 更新 home_screen 文件头注释反映薄组合层结构
+b006170  merge: P2 home 二轮拆分 (home_screen 1017→230 + screens/home/ 8 文件)
+78d1ba8  refactor: D8/D9/D10 消除前端静默吞异常 (跨域)</pre></details>
+
+<p>然后(以 P5 为例,把 <code>PATHS</code> 换成你那行):</p>
+<pre>git fetch origin && git checkout refactor-all
+
+# 你域的路径(前端加 Frontend/lib/ 前缀,后端加完整包前缀)
+B=Backend/paperhub/src/main/java/com/example/paperhub
+PATHS="$B/chat $B/websocket \
+  Frontend/lib/screens/chat_screen.dart Frontend/lib/screens/message \
+  Frontend/lib/widgets/message_bubble.dart Frontend/lib/widgets/message \
+  Frontend/lib/widgets/chat_input.dart Frontend/lib/services/chat_service.dart \
+  Frontend/lib/services/api/chat_api.dart"
+
+# ① 你域改了哪些 commit(细粒度历史更全,用 wave1-2-full)
+git log --oneline main..refactor/wave1-2-full -- $PATHS  > my_commits.txt
+
+# ② 你域 重构前→后 的完整 diff(喂给 agent 的主料)
+git diff main..refactor-all -- $PATHS                    > my_domain.diff
+
+# ③ 你域现在的文件清单 + 行数(证明上帝文件被拆小)
+git ls-files refactor-all -- $PATHS | xargs wc -l | sort -n > my_files.txt</pre>
+
+<h3>第 2 步 · 备好背景资料(给 Agent 上下文,避免它臆造)</h3>
+<ul>
+<li><a href="refactoring-report.md">refactoring-report.md</a> — 全局重构报告(背景、问题、测试矩阵)</li>
+<li><a href="division-plan-7-developers.md">division-plan-7-developers.md</a> — 你的 <b>§4 P&lt;n&gt;</b> 段(你的职责/任务清单原文)</li>
+<li><a href="refactor/state-management-convention.md">state-management-convention.md</a> — ChangeNotifier 约定(前端报告需引用)</li>
+<li><a href="refactor/architecture-decisions.md">architecture-decisions.md</a> — 推迟项的理由(写"未完成"段用)</li>
+<li><a href="refactor/remaining-tasks.md">remaining-tasks.md</a> — 剩余任务与决议</li>
+</ul>
+
+<h3>第 3 步 · 给 Agent 的 Prompt 模板(直接套用)</h3>
+<pre>你是技术写作助手。下面是 Paperhub 重构中【P&lt;n&gt; &lt;域名&gt;(负责人 &lt;名字&gt;)】这一纵向切片的
+全部改动,请据此写一份"个人重构报告"。
+
+【输出结构】
+1. 重构范围 — 我负责的后端包 / 前端目录(用真实路径)
+2. 重构前的问题 — 上帝文件行数 / N+1 / 轮询 / 死代码 / 缺校验 …(只写本域确有的)
+3. 做了什么 — 分 后端 / 前端 / 测试 三块,每条给出 file:line 或 commit hash
+4. 行为不变的证明 — 列出对应测试 + 关键不变量(乐观更新回滚、分页、去重 …)
+5. 遗留与后续 — 本域推迟/未做的部分(见背景资料里的"未完成"列)
+
+【硬性要求】
+- 中文正文;类名 / 方法名 / 文件名 / 包名保留英文。
+- 只描述 diff 里确有的改动,严禁臆造未发生的工作或编造行数。
+- 凡声称"行为不变"必须指向具体测试;凡声称某文件被拆必须给拆分前后行数。
+
+【材料】
+- 我域的完整 diff:<粘贴 my_domain.diff,或作为附件>
+- 我域的 commit 列表:<粘贴 my_commits.txt>
+- 我域的文件与行数:<粘贴 my_files.txt>
+- 全局背景:<粘贴 refactoring-report.md 摘要 + division-plan §4 我那段 + state-management-convention.md></pre>
+
+<div class="box warn"><b>给 Agent 喂料的两个坑:</b>
+① diff 太大时分前端 / 后端两次喂,别让它"猜"被截断的部分;
+② 明确要求它<b>用 diff 里的真实 file:line</b>,否则 LLM 容易编造看似合理但不存在的细节(见 §7)。</div>
+
+<h2 id="undone">5 · 没做 / 主动推迟的事(诚实清单)</h2>
+<p class="lead">以下不是遗漏,是按 ROI 主动决议并记录了触发条件(详见 <a href="refactor/architecture-decisions.md">architecture-decisions.md</a> 与 <a href="refactor/remaining-tasks.md">remaining-tasks.md</a>)。<b>没有为了凑"全绿"去硬做 YAGNI。</b></p>
+<table>
+<tr><th>项</th><th>处置</th><th>原因 / 触发条件</th></tr>
+<tr><td>I5 GoRouter + 深链接</td><td><span class="chip chip-y">推迟</span></td><td>需专门一轮串行改全部导航(行为可见变更);当前命名路由可用。Wave3。</td></tr>
+<tr><td>I6 Provider/Riverpod 全量 + <code>providers/</code> 树</td><td><span class="chip chip-y">推迟</span></td><td>当前 bare ChangeNotifier 已工作;全量接入随 I5 一并做。</td></tr>
+<tr><td>N5 API import 统一(facade vs direct)</td><td><span class="chip chip-y">推迟</span></td><td>并存且无害,统一为纯 cosmetic。</td></tr>
+<tr><td>T1 覆盖率量化(JaCoCo / <code>flutter --coverage</code>)</td><td><span class="chip chip-y">推迟</span></td><td>是数值统计非功能;接入工具后补。</td></tr>
+<tr><td>T2 集成测试(Testcontainers)</td><td><span class="chip chip-y">推迟</span></td><td>slice 测试已覆盖逻辑;Testcontainers 重依赖,准生产再加。</td></tr>
+<tr><td>A2 Flyway 迁移</td><td><span class="chip chip-y">推迟</span></td><td>触发:schema 稳定 + 准生产。</td></tr>
+<tr><td>A3 Redis Pub/Sub 多实例广播</td><td><span class="chip chip-r">YAGNI</span></td><td>单实例无需;多实例时再做。</td></tr>
+<tr><td>A4 Maven 子模块</td><td><span class="chip chip-r">YAGNI</span></td><td>包级模块化已足够(可选 ArchUnit 守边界)。</td></tr>
+<tr><td>A1 DB 最小权限</td><td><span class="chip chip-b">运维</span></td><td>附最小授权 SQL,交 DBA/运维。</td></tr>
+<tr><td>T5 CI 跑测试</td><td><span class="chip chip-b">运维</span></td><td><code>.gitlab-ci.yml</code> 当前 <code>-DskipTests</code>;且远程是 GitHub,见 §7。</td></tr>
+</table>
+
+<h2 id="next">6 · 还想继续 refactor,从哪下手</h2>
+<p class="lead">上帝文件已全拆,下一批价值点(按建议优先级):</p>
+<ol>
+<li><b>加 GitHub Actions CI(最高性价比)</b> — 仓库在 GitHub 但只有 <code>.gitlab-ci.yml</code>(<b>不触发</b>)。加一个 workflow 跑 <code>flutter analyze + flutter test</code> 与后端 <code>mvn test</code>,把"绿"自动化(对应 T5)。</li>
+<li><b>后端包内分层</b> — 按 CLAUDE.md 把每个 feature 包整理成 <code>api/ domain/ data/ service/</code> 四层,依赖方向 <code>api→service→domain+data</code>。现在是平铺,这步让边界显式(可配 ArchUnit 守护)。</li>
+<li><b>Provider 全量接入 + GoRouter</b>(I6 + I5)— 一轮串行专项,把 bare ChangeNotifier 收进 <code>providers/</code> 根节点,导航改 GoRouter 支持深链接。</li>
+<li><b>集成测试 + 覆盖率</b>(T2 + T1)— Testcontainers 起真 MySQL/Redis 跑端到端;接 JaCoCo / <code>flutter --coverage</code> 量化。</li>
+<li><b>小清理</b> — <code>screens/message_screen.dart</code> 还是 9 行 re-export shim(迁移残留,可删并改引用方);N5 统一 API import;个别仍偏大的骨架(如 home 230)可继续下探。</li>
+</ol>
+
+<h2 id="lessons">7 · 关键经验与坑(避免重蹈)</h2>
+<div class="box warn">
+<b>① 判断"分支健康"必须查 COMMITTED 状态,不能只看 working tree。</b><br>
+本次最严重的一个 bug:auth 改名后 <code>router.dart</code> 的 import 修复<b>只在工作区、忘了 commit</b>,导致已提交的 HEAD 实际 11 个 analyze error 无法编译,而本地 <code>flutter analyze</code> 因为读的是带未提交修复的 working tree 显示"0 错误"。<b>正确做法:<code>git show HEAD:path</code> 看提交态;或在干净 checkout / CI 里验。</b>(<code>flutter test</code> 能过是因为 router 没被测试 import,所以单测绿 ≠ 能编译。)
+</div>
+<ul>
+<li><b>禁止"假拆分"</b>:<code>extension on _State</code> / <code>part of</code> 把代码挪文件但仍共享私有状态 ≠ 拆分。必须是真 Widget / 真 ChangeNotifier / 纯函数,各自可独立测试。</li>
+<li><b>拆一个补一个测试</b>:重构 commit 行为不变,且由测试证明;没测试的重构是赌博。</li>
+<li><b>commit 前 <code>git status</code> 必须 clean</b>:本次多次出现 agent"做完忘 commit"或"修复留在工作区",务必收尾确认。</li>
+<li><b>一次 commit 只做一件事</b>:<code>refactor:</code> 不含行为变更;改 API 独立 commit + 同步前端。(<code>refactor-all</code> 的 6 个 checkpoint 是"阶段打包"的例外,细粒度在 <code>wave1-2-full</code>。)</li>
+<li><b>GitHub 无 CI</b>:push 不会自动跑测试,所有"绿"目前靠本地验证;后端 <code>mvnw</code> 提交的是 644 无执行位,用 <code>sh mvnw test</code> 跑。</li>
+</ul>
+
+<h2 id="docs">8 · 文档索引</h2>
+<ul>
+<li><a href="refactoring-report.md">docs/refactoring-report.md</a> — 全局重构报告</li>
+<li><a href="division-plan-7-developers.md">docs/division-plan-7-developers.md</a> — 7 人分工方案(含附录 A 文件→负责人映射)</li>
+<li><a href="refactor/remaining-tasks.md">docs/refactor/remaining-tasks.md</a> — 剩余任务 + Stage5 决议 + 共审小结</li>
+<li><a href="refactor/architecture-decisions.md">docs/refactor/architecture-decisions.md</a> — 架构决策 ADR(推迟项理由)</li>
+<li><a href="refactor/state-management-convention.md">docs/refactor/state-management-convention.md</a> — 前端 ChangeNotifier 约定</li>
+<li><a href="refactor/retrospective-incomplete-tasks.md">docs/refactor/retrospective-incomplete-tasks.md</a> — 8 个失败模式复盘</li>
+<li><a href="refactor/wave1-backend-report.html">wave1-backend-report.html</a> / <a href="refactor/wave2-frontend-report.html">wave2-frontend-report.html</a> — 后端 / 前端图文报告</li>
+<li><a href="refactor/wave2-token-tracker.md">wave2-token-tracker.md</a> — token 账单(各 agent 烧了多少)</li>
+</ul>
+
+<footer>
+Paperhub 重构交接 · 2026-06-18 · 交付分支 <code>refactor-all</code>(6 checkpoints)/ <code>refactor/wave1-2-full</code>(146 + cp1–cp6 tags)· 426 tests green · 0 errors(COMMITTED 核实)
+</footer>
+
+</body>
+</html>
