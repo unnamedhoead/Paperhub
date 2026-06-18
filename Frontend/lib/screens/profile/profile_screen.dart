@@ -6,7 +6,7 @@ import '../../services/browse_history_service.dart';
 import '../../services/chat_service.dart';
 import '../../services/local_storage.dart';
 import '../admin/admin_screen.dart';
-import '../auth/login_page.dart';
+import '../auth/login_screen.dart';
 import '../chat_screen.dart';
 import '../follow_list_screen.dart';
 import '../message_screen.dart';

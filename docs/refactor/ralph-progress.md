@@ -61,3 +61,17 @@
 ## Stage2 codex-review P2 — CLEAN
 - codex-review(--base 9446f82, 干净worktree): 零 actionable 功能缺陷, "改动为组件/控制器拆分+测试补充, 测试通过". P2 通过 review.
 - 进入 Stage3 更新 wave2 文档.
+
+## Stage5 (G1 等待期并行) — N1/N2
+- N2: 删 pages/note_editor_page.dart 无用 re-export。
+- N1: auth 5 文件 _page→_screen 后缀, 修 router+profile import。analyze 0, tests 绿。
+- G1 agent(a44727) 后台进行中(post_detail 抽 PostDetailController)。
+
+## G10 完成 + N1/N2
+- G10 合并: note_editor extension→NoteEditorController(ChangeNotifier)+3 mixin+发布service, 28 单测。合并后全量 165 tests 绿, analyze 0。(G10 worktree 报的 message_bubble fail 是 worktree-local 假象, 主干无此问题, 已验证。)
+- G1(post_detail, a44727) 仍在跑。
+
+## G1 完成 — 主结构收官
+- G1 合并: post_detail_screen 2768→473(≤500), 业务方法全移出(grep空), 12 新文件(PostDetailController+交互/评论子controller+CommentTreeOps纯函数+widgets), 9 增量commit, 21 单测。
+- 合并后全量 186 前端 tests 绿, analyze 0。**所有上帝文件 G1-G10 全部拆完。**
+- 启动最终 codex-review (Stage4/5: G1+G10+N1+N2, --base 2ccd62c)。
