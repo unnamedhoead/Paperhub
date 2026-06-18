@@ -1,7 +1,15 @@
 //auth模块，负责处理用户认证相关的业务逻辑,包括注册、登录、邮箱验证、密码重置等功能
 package com.example.paperhub.auth;
 
-import com.example.paperhub.auth.dto.AuthDtos.*;
+import com.example.paperhub.auth.dto.EmailReq;
+import com.example.paperhub.auth.dto.LoginReq;
+import com.example.paperhub.auth.dto.LoginResp;
+import com.example.paperhub.auth.dto.MessageResp;
+import com.example.paperhub.auth.dto.RefreshTokenReq;
+import com.example.paperhub.auth.dto.RefreshTokenResp;
+import com.example.paperhub.auth.dto.RegisterReq;
+import com.example.paperhub.auth.dto.ResetReq;
+import com.example.paperhub.auth.dto.VerifyReq;
 import com.example.paperhub.common.exception.ForbiddenException;
 import com.example.paperhub.common.exception.NotFoundException;
 import com.example.paperhub.common.exception.UnauthorizedException;

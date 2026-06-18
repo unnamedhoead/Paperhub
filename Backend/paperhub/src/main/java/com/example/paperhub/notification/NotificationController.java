@@ -2,6 +2,8 @@ package com.example.paperhub.notification;
 
 import com.example.paperhub.auth.User;
 import com.example.paperhub.notification.dto.NotificationDtos;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
@@ -14,6 +16,9 @@ import java.util.Map;
 @RestController
 @RequestMapping("/notifications")
 public class NotificationController {
+
+    private static final Logger log = LoggerFactory.getLogger(NotificationController.class);
+
     private final NotificationService notificationService;
 
     public NotificationController(NotificationService notificationService) {
@@ -27,6 +32,7 @@ public class NotificationController {
     @GetMapping("/unread-count")
     public ResponseEntity<NotificationDtos.UnreadCountResp> getUnreadCount(
             @AuthenticationPrincipal User user) {
+        log.debug("GET /notifications/unread-count, userId={}", user != null ? user.getId() : "null");
         if (user == null) {
             return ResponseEntity.status(401).build();
         }
@@ -49,6 +55,7 @@ public class NotificationController {
             @AuthenticationPrincipal User user,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int pageSize) {
+        log.debug("GET /notifications/likes, userId={}, page={}, pageSize={}", user != null ? user.getId() : "null", page, pageSize);
         if (user == null) {
             return ResponseEntity.status(401).build();
         }
@@ -78,6 +85,7 @@ public class NotificationController {
             @AuthenticationPrincipal User user,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int pageSize) {
+        log.debug("GET /notifications/follows, userId={}, page={}, pageSize={}", user != null ? user.getId() : "null", page, pageSize);
         if (user == null) {
             return ResponseEntity.status(401).build();
         }
@@ -107,6 +115,7 @@ public class NotificationController {
             @AuthenticationPrincipal User user,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int pageSize) {
+        log.debug("GET /notifications/comments, userId={}, page={}, pageSize={}", user != null ? user.getId() : "null", page, pageSize);
         if (user == null) {
             return ResponseEntity.status(401).build();
         }
@@ -135,6 +144,7 @@ public class NotificationController {
     public ResponseEntity<Map<String, String>> markAsRead(
             @PathVariable Long id,
             @AuthenticationPrincipal User user) {
+        log.debug("PUT /notifications/{}/read, userId={}", id, user != null ? user.getId() : "null");
         if (user == null) {
             return ResponseEntity.status(401).build();
         }
@@ -155,6 +165,7 @@ public class NotificationController {
     public ResponseEntity<Map<String, String>> markAllAsReadByTypes(
             @RequestParam List<String> types,
             @AuthenticationPrincipal User user) {
+        log.debug("PUT /notifications/mark-all-read, userId={}, types={}", user != null ? user.getId() : "null", types);
         if (user == null) {
             return ResponseEntity.status(401).build();
         }

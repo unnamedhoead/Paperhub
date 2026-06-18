@@ -2,8 +2,8 @@ package com.example.paperhub.hot;
 
 import com.example.paperhub.history.SearchHistory;
 import com.example.paperhub.history.SearchHistoryRepository;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +25,8 @@ import java.util.stream.Collectors;
  */
 @Service
 public class HotSearchService {
+
+    private static final Logger log = LoggerFactory.getLogger(HotSearchService.class);
 
     // 配置参数
     private static final int DEFAULT_HOT_SEARCH_LIMIT = 20; // 默认返回热搜数量
@@ -358,8 +360,7 @@ public class HotSearchService {
             calculateAndUpdateHotSearches();
         } catch (Exception e) {
             // 记录错误，但不要抛出异常，以免影响其他定时任务
-            System.err.println("热搜计算定时任务执行失败: " + e.getMessage());
-            e.printStackTrace();
+            log.error("热搜计算定时任务执行失败", e);
         }
     }
 }

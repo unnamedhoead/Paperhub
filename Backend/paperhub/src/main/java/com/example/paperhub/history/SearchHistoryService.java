@@ -2,6 +2,7 @@ package com.example.paperhub.history;
 
 import com.example.paperhub.auth.User;
 import com.example.paperhub.auth.UserRepository;
+import com.example.paperhub.common.exception.NotFoundException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -46,7 +47,7 @@ public class SearchHistoryService {
         }
 
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
+                .orElseThrow(() -> new NotFoundException("用户不存在: " + userId));
 
         String trimmedKeyword = keyword.trim();
 
@@ -103,7 +104,7 @@ public class SearchHistoryService {
     public void deleteOne(Long userId, Long historyId) {
         int deleted = searchHistoryRepository.deleteByIdAndUserId(historyId, userId);
         if (deleted == 0) {
-            throw new IllegalArgumentException("Search history not found or not owned by user");
+            throw new NotFoundException("搜索历史不存在或不属于当前用户");
         }
     }
 

@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Paperhub Wave1 — 后端重构完整报告</title>
+<style>
+  :root { --bg: #f8f9fa; --card: #fff; --text: #212529; --muted: #6c757d; --border: #dee2e6;
+    --green: #198754; --blue: #0d6efd; --red: #dc3545; --amber: #fd7e14; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; padding: 24px; max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 2rem; margin-bottom: 4px; }
+  h2 { font-size: 1.4rem; margin: 32px 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--border); }
+  h3 { font-size: 1.1rem; margin: 16px 0 8px; }
+  .subtitle { color: var(--muted); font-size: .95rem; margin-bottom: 24px; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 12px; margin: 16px 0 24px; }
+  .kpi { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  .kpi .num { font-size: 2rem; font-weight: 700; }
+  .kpi .label { font-size: .8rem; color: var(--muted); margin-top: 2px; }
+  .kpi.green .num { color: var(--green); }
+  .kpi.blue  .num { color: var(--blue); }
+  .kpi.amber .num { color: var(--amber); }
+  .kpi.red   .num { color: var(--red); }
+  .agent-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin: 20px 0; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.04); }
+  .agent-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; cursor: pointer; user-select: none; }
+  .agent-header:hover { background: #f1f3f5; }
+  .agent-header .id { font-weight: 700; font-size: 1.1rem; }
+  .agent-header .domain { color: var(--muted); font-size: .9rem; margin-left: 8px; }
+  .agent-body { padding: 0 20px 16px; display: none; }
+  .agent-card.open .agent-body { display: block; }
+  .agent-card.open .agent-header { border-bottom: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 16px; font-size: .9rem; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+  th { font-weight: 600; color: var(--muted); font-size: .8rem; text-transform: uppercase; }
+  tr:hover { background: #f8f9fa; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: .75rem; font-weight: 600; }
+  .tag-new { background: #d1e7dd; color: #0f5132; }
+  .tag-mod { background: #cff4fc; color: #055160; }
+  .tag-del { background: #f8d7da; color: #842029; }
+  .tag-fix { background: #fff3cd; color: #664d03; }
+  .badge { display: inline-block; min-width: 20px; text-align: center; padding: 1px 6px; border-radius: 10px; font-size: .75rem; font-weight: 600; }
+  .badge-done { background: #d1e7dd; color: #0f5132; }
+  .badge-partial { background: #fff3cd; color: #664d03; }
+  .badge-pending { background: #f8d7da; color: #842029; }
+  .checklist { list-style: none; }
+  .checklist li { padding: 3px 0; }
+  .checklist li::before { content: '☐ '; color: var(--muted); }
+  .checklist li.done::before { content: '☑ '; color: var(--green); }
+  .checklist li.partial::before { content: '☒ '; color: var(--amber); }
+  .timeline { position: relative; padding-left: 24px; }
+  .timeline::before { content: ''; position: absolute; left: 8px; top: 0; bottom: 0; width: 2px; background: var(--border); }
+  .timeline-item { position: relative; margin-bottom: 16px; }
+  .timeline-item::before { content: ''; position: absolute; left: -20px; top: 6px; width: 12px; height: 12px; border-radius: 50%; background: var(--blue); border: 2px solid var(--bg); }
+  .section { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
+  .section.full { grid-template-columns: 1fr; }
+  .section h4 { font-size: .85rem; color: var(--muted); margin-bottom: 4px; }
+  .file-list { font-family: 'SF Mono', 'Fira Code', monospace; font-size: .8rem; max-height: 300px; overflow-y: auto; background: #f8f9fa; border-radius: 6px; padding: 8px 12px; }
+  .file-list div { padding: 1px 0; white-space: nowrap; }
+  .file-list .new { color: var(--green); }
+  .file-list .mod { color: var(--blue); }
+  .file-list .del { color: var(--red); text-decoration: line-through; }
+  summary { cursor: pointer; padding: 4px 0; }
+  @media (max-width: 768px) { .section { grid-template-columns: 1fr; } body { padding: 12px; } }
+  .cross-table { font-size: .85rem; }
+  .cross-table td:first-child { font-weight: 600; white-space: nowrap; }
+  .cross-table .yes { color: var(--green); font-weight: 700; }
+  .cross-table .na  { color: var(--muted); }
+  .chevron { transition: transform .2s; }
+  .agent-card.open .chevron { transform: rotate(180deg); }
+</style>
+</head>
+<body>
+
+<h1>📋 Paperhub Wave1 — 后端重构完整报告</h1>
+<p class="subtitle">基线: <code>refactor/wave1-base</code> &nbsp;|&nbsp; 日期: 2026-06-17 &nbsp;|&nbsp; 方法: 6 个隔离 worktree agent 并行增量</p>
+
+<div class="kpi-grid">
+  <div class="kpi green"><div class="num">228</div><div class="label">总测试 (全绿)</div></div>
+  <div class="kpi blue"><div class="num">~890K</div><div class="label">Agent Token 合计</div></div>
+  <div class="kpi"><div class="num">227</div><div class="label">变更文件</div></div>
+  <div class="kpi"><div class="num">+12,693</div><div class="label">新增代码行</div></div>
+  <div class="kpi"><div class="num">−6,258</div><div class="label">删除代码行</div></div>
+  <div class="kpi green"><div class="num">8/8</div><div class="label">后端包覆盖</div></div>
+  <div class="kpi amber"><div class="num">1 行</div><div class="label">跨域冲突 (已解)</div></div>
+  <div class="kpi"><div class="num">15</div><div class="label">上帝文件已拆分</div></div>
+</div>
+
+<hr style="border: none; border-top: 1px solid var(--border); margin: 12px 0 24px;">
+
+<!-- ====== TIMELINE ====== -->
+<h2>🕐 推进时间线</h2>
+<div class="timeline">
+  <div class="timeline-item"><strong>P1 (已有)</strong> — 3 commits, 15 files, +365/−105<br><span style="color:var(--muted)">SecurityConfig / JWT 修复 / common 异常 / ApiResponse / PermissionUtils / HttpClient / main.dart 拆分</span></div>
+  <div class="timeline-item"><strong>M0 修复</strong> — 2 commits, 5 files, +45/−1<br><span style="color:var(--muted)">NoResourceFoundException→404 / SecurityConfigTest 修复 / H2 test profile</span></div>
+  <div class="timeline-item"><strong>P7 试点</strong> (单 agent) — 2 commits, 27 files, +1263/−354<br><span style="color:var(--muted)">history/hot 后端 DTO 化 + BrowseHistory 容量 bug 修复</span></div>
+  <div class="timeline-item"><strong>P2–P6 并行扇出</strong> (5 agents) — 12 commits<br><span style="color:var(--muted)">auth/user | post/arxiv | interaction | chat/websocket | admin/report</span></div>
+  <div class="timeline-item"><strong>合并收尾</strong> — 5 merge commits + tracker<br><span style="color:var(--muted)">全量回归 228 tests green ✓</span></div>
+</div>
+
+<!-- ====== CROSS-CUTTING ====== -->
+<h2>🔁 跨域统一模式（7 个 Agent 全部执行）</h2>
+<table class="cross-table">
+<tr><th>模式</th><th>P1</th><th>M0</th><th>P7</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th></tr>
+<tr><td>Controller 拆分</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="yes">1→3</td><td class="yes">1→4</td><td class="yes">新建1</td><td class="na">—</td><td class="yes">1→5</td></tr>
+<tr><td>Service 拆分</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="yes">1→6</td><td class="yes">拆Push</td><td class="yes">抽内核</td><td class="yes">1→2+2</td></tr>
+<tr><td>Map→record DTO</td><td class="yes">ApiResponse</td><td class="na">—</td><td class="yes">14 rec.</td><td class="yes">16 rec.</td><td class="yes">1 rec.</td><td class="yes">6 rec.</td><td class="na">—</td><td class="yes">21 rec.</td></tr>
+<tr><td>@Valid 校验</td><td class="yes">全局Handler</td><td class="na">—</td><td class="yes">✓</td><td class="yes">✓</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="yes">✓</td></tr>
+<tr><td>统一异常 throw</td><td class="yes">基类</td><td class="na">—</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+<tr><td>构造器注入</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="yes">✓</td><td class="yes">✓</td><td class="na">—</td><td class="yes">✓</td><td class="na">—</td></tr>
+<tr><td>SLF4J 替换 SOUT</td><td class="yes">全局</td><td class="na">—</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+<tr><td>原子 SQL 计数</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="yes">like/fav</td><td class="na">—</td><td class="na">—</td></tr>
+<tr><td>@PreAuthorize</td><td class="yes">enable</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="yes">5 ctrl</td></tr>
+<tr><td>批量 SQL 替代递归</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="yes">comment</td><td class="na">—</td><td class="na">—</td></tr>
+<tr><td>设计模式</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="yes">Proxy+Adapter</td><td class="yes">Template</td><td class="na">—</td><td class="yes">Strategy</td></tr>
+</table>
+
+<!-- ====== AGENT CARDS ====== -->
+<h2>🤖 Agent 逐域详述</h2>
+<p style="color:var(--muted); font-size:.9rem">点击展开每个 agent</p>
+
+<!-- P1 -->
+<div class="agent-card" onclick="this.classList.toggle('open')">
+<div class="agent-header">
+  <div><span class="id">P1 — 平台基础设施与安全</span><span class="domain">config / jwt / common</span></div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <span class="badge badge-done">3 commits</span>
+    <span class="tag tag-new">+15 文件</span>
+    <span class="chevron">▾</span>
+  </div>
+</div>
+<div class="agent-body">
+
+<h3>目标</h3>
+<p>消除阻塞性安全缺陷、建立全项目共享的异常/响应/权限基础设施，前端抽统一 HttpClient + main.dart 拆分。</p>
+
+<h3>Todo 完成情况</h3>
+<ul class="checklist">
+<li class="done">R2 JWT secret 外置 + 失败即停 (不再静默 fallback 明文)</li>
+<li class="done">R4 Token 黑名单 + RedisTokenBlacklistService</li>
+<li class="done">RBAC 动态角色 (ROLE_ + role.name())</li>
+<li class="done">JwtService 重构 (buildToken/parseToken private/parseTokenSafely/常量/BEARER/jti/userId)</li>
+<li class="done">ApiResponse 统一响应 + common/exception 基类层级</li>
+<li class="done">GlobalExceptionHandler 统一异常→JSON</li>
+<li class="done">PermissionUtils (ensureAdmin/ensureSuperAdmin)</li>
+<li class="done">SecurityConfig: @EnableMethodSecurity + 白名单 + JWT 过滤器注册 + CORS 收敛</li>
+<li class="done">application.properties 敏感项外移 (${ENV} 占位)</li>
+<li class="done">前端: HttpClient 单例 (保留 single-flight 401 刷新) + main.dart→app/router/theme/bootstrap</li>
+<li class="partial">CORS allowedOrigins 默认仍 * (部署时需填白名单)</li>
+<li class="partial">anyRequest().permitAll() 未收紧为 authenticated() (等 P2–P7 端点适配完最后做)</li>
+<li class="pending">状态管理 A5 (Provider/Riverpod) 未接入</li>
+<li class="pending">ObsConfig endpoint 外置</li>
+</ul>
+
+<h3>变更文件</h3>
+<div class="section">
+<div><h4>新增</h4><div class="file-list"><div class="new">common/dto/ApiResponse.java</div><div class="new">common/exception/ApiException.java</div><div class="new">common/exception/BadRequestException.java</div><div class="new">common/exception/ForbiddenException.java</div><div class="new">common/exception/NotFoundException.java</div><div class="new">common/exception/UnauthorizedException.java</div><div class="new">common/security/PermissionUtils.java</div><div class="new">jwt/RedisTokenBlacklistService.java</div><div class="new">jwt/TokenBlacklistService.java</div></div></div>
+<div><h4>修改</h4><div class="file-list"><div class="mod">config/SecurityConfig.java</div><div class="mod">config/JwtAuthenticationFilter.java</div><div class="mod">config/GlobalExceptionHandler.java</div><div class="mod">jwt/JwtService.java</div><div class="mod">auth/AuthController.java (适配新 JWT 签名+异常)</div><div class="mod">auth/AuthService.java</div></div></div>
+</div>
+<p style="color:var(--muted);font-size:.8rem">+ 前端: http_client.dart(新增) main.dart(拆分) app/router/theme/bootstrap(新增) application.properties(外置)</p>
+</div></div>
+
+<!-- P7 -->
+<div class="agent-card" onclick="this.classList.toggle('open')">
+<div class="agent-header">
+  <div><span class="id">P7 — 内容浏览与检索</span><span class="domain">history / hot</span></div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <span class="badge badge-done">2 commits</span>
+    <span class="tag tag-new">+21 文件</span>
+    <span class="chevron">▾</span>
+  </div>
+</div>
+<div class="agent-body">
+
+<h3>目标</h3>
+<p>history/hot 后端 DTO 化 (替代 Map)、@Valid 校验、统一异常、修复 BrowseHistory 容量裁剪从未触发的 bug。</p>
+
+<h3>Todo 完成情况</h3>
+<ul class="checklist">
+<li class="done">BrowseHistoryController: Map→RecordBrowseHistoryReq DTO + @Valid</li>
+<li class="done">SearchHistoryController: Map→RecordSearchHistoryReq DTO + @Valid</li>
+<li class="done">HotSearchController: Map→DTO + @Valid</li>
+<li class="done">BrowseHistoryService: 修复 enforceHistoryCap (count→delete oldest → 之前 findTop50 死代码)</li>
+<li class="done">14 个新 DTO record (history/dto/ 8个 + hot/dto/ 6个)</li>
+<li class="done">统一异常 (throw UnauthorizedException/NotFoundException/BadRequestException)</li>
+<li class="done">SLF4J 替换 System.out/err</li>
+<li class="done">6 个测试类 (31 新测试) — @WebMvcTest + Mockito</li>
+<li class="partial">成功响应未套 ApiResponse data 层 (前端兼容，按设计)</li>
+<li class="partial">BrowseHistoryService.findTop50… 保留 (post/RecommendationService 仍调用，P3 的事)</li>
+</ul>
+
+<h3>变更文件</h3>
+<div class="section">
+<div><h4>新增 (DTO)</h4><div class="file-list"><div class="new">history/dto/BrowseHistoryItemResp.java</div><div class="new">history/dto/BrowseHistoryListResp.java</div><div class="new">history/dto/MessageResp.java</div><div class="new">history/dto/RecentKeywordsResp.java</div><div class="new">history/dto/RecordBrowseHistoryReq.java</div><div class="new">history/dto/RecordSearchHistoryReq.java</div><div class="new">history/dto/SearchHistoryItemResp.java</div><div class="new">history/dto/SearchHistoryListResp.java</div><div class="new">hot/dto/CalculateHotSearchReq.java</div><div class="new">hot/dto/CalculateHotSearchResp.java</div><div class="new">hot/dto/HotSearchDetailResp.java</div><div class="new">hot/dto/HotSearchItemResp.java</div><div class="new">hot/dto/HotSearchListResp.java</div><div class="new">hot/dto/HotSearchStatsResp.java</div></div></div>
+<div><h4>修改</h4><div class="file-list"><div class="mod">history/BrowseHistoryController.java</div><div class="mod">history/BrowseHistoryRepository.java (+countByUser +findIds)</div><div class="mod">history/BrowseHistoryService.java (+enforceHistoryCap)</div><div class="mod">history/SearchHistoryController.java</div><div class="mod">history/SearchHistoryService.java</div><div class="mod">hot/HotSearchController.java</div><div class="mod">hot/HotSearchService.java</div></div></div>
+</div>
+<p style="color:var(--muted);font-size:.8rem">+ 6 个测试类 (BrowseHistoryController/Service ×2 + SearchHistoryController/Service ×2 + HotSearchController/Service ×2)</p>
+</div></div>
+
+<!-- P2 -->
+<div class="agent-card" onclick="this.classList.toggle('open')">
+<div class="agent-header">
+  <div><span class="id">P2 — 认证与用户账户</span><span class="domain">auth / user / notify</span></div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <span class="badge badge-done">1 commit*</span>
+    <span class="tag tag-mod">+27 文件</span>
+    <span class="chevron">▾</span>
+  </div>
+</div>
+<div class="agent-body">
+
+<p style="color:var(--amber);font-size:.8rem;margin-bottom:8px">* Agent 完成工作后未 commit，已由 orchestrator 手工提交为 1 个 commit (30 files, +1513/−796)</p>
+
+<h3>目标</h3>
+<p>User Lombok 化、AuthService 去重、UserController 拆为 3 个子 Controller、DTO 独立文件、移除 follow 端点 (交 P4)、MailService 注入清洗。</p>
+
+<h3>Todo 完成情况</h3>
+<ul class="checklist">
+<li class="done">User.java: @Getter/@Setter/@NoArgsConstructor, 删 90+ 行样板, role 默认值前移</li>
+<li class="done">AuthService: refreshAndSendVerificationCode 抽取, TTL 常量 (300/600)</li>
+<li class="done">AuthDtos (9 record)→拆分 9 独立文件 (RegisterReq/LoginReq/LoginResp/RefreshTokenReq/etc)</li>
+<li class="done">UserController(541行)→UserProfileController(245) + UserPrivacyController(55) + UserMediaController(102)</li>
+<li class="done">移除 follow 端点 (POST/DELETE /{userId}/follow + following/followers/mutual→P4 FollowController)</li>
+<li class="done">禁止 Controller 直接访问 Repository, 全部经 UserService</li>
+<li class="done">UserService: updateProfile @Transactional + 新增 getUserById/refreshUser/updatePrivacy/saveUser/searchByName</li>
+<li class="done">UserDtos (7 record)→拆分 7 独立文件 (ProfileResp/UpdateProfileReq/PrivacySettingsResp/etc)</li>
+<li class="done">MailService: @Autowired→构造器注入, System.err→SLF4J</li>
+<li class="done">3 测试类: AuthServiceTest(20) + AuthControllerTest(10) + UserServiceTest(12)</li>
+<li class="partial">follow 端点删除但 P4 并行创建 FollowController (设计交接，合并后无缺口)</li>
+</ul>
+
+<h3>变更文件</h3>
+<div class="section">
+<div><h4>新增</h4><div class="file-list"><div class="new">auth/dto/EmailReq.java</div><div class="new">auth/dto/LoginReq.java</div><div class="new">auth/dto/LoginResp.java</div><div class="new">auth/dto/MessageResp.java</div><div class="new">auth/dto/RefreshTokenReq.java</div><div class="new">auth/dto/RefreshTokenResp.java</div><div class="new">auth/dto/RegisterReq.java</div><div class="new">auth/dto/ResetReq.java</div><div class="new">auth/dto/VerifyReq.java</div><div class="new">user/UserMediaController.java</div><div class="new">user/UserPrivacyController.java</div><div class="new">user/UserProfileController.java</div><div class="new">user/dto/AvatarUploadResp.java</div><div class="new">user/dto/BackgroundUploadResp.java</div><div class="new">user/dto/PrivacySettingsResp.java</div><div class="new">user/dto/ProfileResp.java</div><div class="new">user/dto/UpdatePrivacySettingsReq.java</div><div class="new">user/dto/UpdateProfileReq.java</div><div class="new">user/dto/UserListResp.java</div></div></div>
+<div><h4>修改 / 删除</h4><div class="file-list"><div class="mod">auth/AuthController.java</div><div class="mod">auth/AuthService.java</div><div class="mod">auth/User.java</div><div class="del">auth/dto/AuthDtos.java (删除, split)</div><div class="mod">notify/MailService.java</div><div class="del">user/UserController.java (删除, split)</div><div class="mod">user/UserService.java</div><div class="del">user/dto/UserDtos.java (删除, split)</div></div></div>
+</div>
+</div></div>
+
+<!-- P3 -->
+<div class="agent-card" onclick="this.classList.toggle('open')">
+<div class="agent-header">
+  <div><span class="id">P3 — 帖子 &amp; arXiv</span><span class="domain">post / arxiv (最重域)</span></div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <span class="badge badge-done">1 commit</span>
+    <span class="tag tag-mod">+17 源文件</span>
+    <span class="chevron">▾</span>
+  </div>
+</div>
+<div class="agent-body">
+
+<h3>目标</h3>
+<p>PostController/PostService 按职责拆分为 Crud/Feed/Search/Media 多 Controller+Service；新增 GET /posts/batch；arXiv 引入代理+适配器模式替代脆弱正则解析。</p>
+
+<h3>Todo 完成情况</h3>
+<ul class="checklist">
+<li class="done">PostController(702行)→PostCrudController(368)+PostFeedController(119)+PostSearchController(57)+PostMediaController(52)</li>
+<li class="done">PostService(520行)→PostCrudService(289)+PostFeedService(72)+PostSearchService(63)+PostDraftService(59)+PostMediaService(68)+PostReportDelegate(63)</li>
+<li class="done">PostService.java 保留为向后兼容 facade (外部 LikeService/CommentService 不受影响)</li>
+<li class="done">新增 GET /posts/batch?ids=1,2,3 (P7 历史 N+1 优化)</li>
+<li class="done">ArxivController 重写: GET /arxiv?id=→原始 XML (兼容), GET /arxiv/metadata?id=→JSON (新增)</li>
+<li class="done">ArxivProxyService (代理模式 — HTTP 调用+UA/Accept+超时+异常转换)</li>
+<li class="done">ArxivMetadataAdapter (适配器模式 — Atom XML→ArxivMetadataDto)</li>
+<li class="done">ArxivMetadataDto record (id/title/authors/abstractText/publishedDate/categories/doi/journal)</li>
+<li class="done">全部 System.out/err/printStackTrace/@Autowired 已移除, SLF4J+构造器注入</li>
+<li class="done">5 测试类: PostCrud/Feed/Search Controller + ArxivController + ArxivMetadataAdapter (34 tests)</li>
+<li class="partial">PostController 仍保留 POST /posts/{postId}/report (70行, 归 P6 的 report 包实现)</li>
+</ul>
+
+<h3>变更文件</h3>
+<div class="section">
+<div><h4>新增</h4><div class="file-list"><div class="new">post/api/PostCrudController.java</div><div class="new">post/api/PostFeedController.java</div><div class="new">post/api/PostMediaController.java</div><div class="new">post/api/PostSearchController.java</div><div class="new">post/dto/BatchPostReq.java</div><div class="new">post/service/PostCrudService.java</div><div class="new">post/service/PostDraftService.java</div><div class="new">post/service/PostFeedService.java</div><div class="new">post/service/PostMediaService.java</div><div class="new">post/service/PostReportDelegate.java</div><div class="new">post/service/PostSearchService.java</div><div class="new">arxiv/ArxivMetadataAdapter.java</div><div class="new">arxiv/ArxivProxyService.java</div><div class="new">arxiv/dto/ArxivMetadataDto.java</div></div></div>
+<div><h4>修改</h4><div class="file-list"><div class="mod">post/PostController.java (702→70)</div><div class="mod">post/PostService.java (facade)</div><div class="mod">arxiv/ArxivController.java (重写)</div></div></div>
+</div>
+</div></div>
+
+<!-- P4 -->
+<div class="agent-card" onclick="this.classList.toggle('open')">
+<div class="agent-header">
+  <div><span class="id">P4 — 互动系统</span><span class="domain">comment / like / favorite / follow / notification</span></div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <span class="badge badge-done">5 commits</span>
+    <span class="tag tag-mod">+19 源文件</span>
+    <span class="chevron">▾</span>
+  </div>
+</div>
+<div class="agent-body">
+
+<h3>目标</h3>
+<p>5 个子域各自重构: comment 批量删除替代递归、like 原子 SQL 不吞异常、favorite toggleFavorite 统一、follow 新建独立 FollowController、notification 拆 PushService。</p>
+
+<h3>Todo 完成情况</h3>
+<ul class="checklist">
+<li class="done"><strong>follow</strong>: 新建 FollowController.java → P2 删除的 follow 端点在此恢复</li>
+<li class="done"><strong>comment</strong>: deleteComment 递归→collectAllReplyIds+批量 JPQL DELETE; CommentRepository 新增 deleteAllByIdIn+decrementPostCommentsCount; 抽 handleCommentLikeResponse</li>
+<li class="done"><strong>like</strong>: 计数 load-save→atomic UPDATE SET count=count±1; getLikesCount 不再静默吞异常返回0</li>
+<li class="done"><strong>favorite</strong>: toggleFavorite 统一 favor/unfavor; FavoritePostRepository 新增 incrementFavoriteCount 原子 SQL</li>
+<li class="done"><strong>notification</strong>: 新建 NotificationPushService (WebSocket 推送解耦); NotificationService 抽 buildAndSaveNotification; 6 个 DTO record 独立</li>
+<li class="done">5 测试类 (47 tests): CommentService/FavoriteService/FollowService/LikeService/NotificationService</li>
+<li class="done">全部 SLF4J + 异常规范化 (throw UnauthorizedException/BadRequestException/NotFoundException)</li>
+</ul>
+
+<h3>变更文件</h3>
+<div class="section">
+<div><h4>新增</h4><div class="file-list"><div class="new">follow/FollowController.java</div><div class="new">notification/NotificationPushService.java</div><div class="new">notification/dto/ActorInfo.java</div><div class="new">notification/dto/CommentInfo.java</div><div class="new">notification/dto/NotificationListResp.java</div><div class="new">notification/dto/NotificationResp.java</div><div class="new">notification/dto/PostInfo.java</div><div class="new">notification/dto/UnreadCountResp.java</div></div></div>
+<div><h4>修改</h4><div class="file-list"><div class="mod">comment/CommentController.java</div><div class="mod">comment/CommentRepository.java</div><div class="mod">comment/CommentService.java</div><div class="mod">favorite/FavoritePostRepository.java</div><div class="mod">favorite/FavoriteService.java</div><div class="mod">follow/FollowService.java</div><div class="mod">like/CommentLikeRepository.java</div><div class="mod">like/LikeService.java</div><div class="mod">like/PostLikeRepository.java</div><div class="mod">notification/NotificationController.java</div><div class="mod">notification/NotificationService.java</div></div></div>
+</div>
+</div></div>
+
+<!-- P5 -->
+<div class="agent-card" onclick="this.classList.toggle('open')">
+<div class="agent-header">
+  <div><span class="id">P5 — 即时通讯 &amp; WebSocket</span><span class="domain">chat / websocket</span></div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <span class="badge badge-done">4 commits</span>
+    <span class="tag tag-mod">+22 源文件</span>
+    <span class="chevron">▾</span>
+  </div>
+</div>
+<div class="agent-body">
+
+<h3>目标</h3>
+<p>ChatService 抽 doSendMessage 内核+N+1修复+禁言过期修复+构造器注入；WebSocket 消息类提取+广播去重+多设备+心跳+SLF4J。</p>
+
+<h3>Todo 完成情况</h3>
+<ul class="checklist">
+<li class="done"><strong>WebSocket</strong>: 13 个消息 POJO 从内部 static class 提取到 websocket/message/ → private final + @JsonProperty</li>
+<li class="done">WsPaths.java 路径常量 (/ws/posts|admin|notifications|chat)</li>
+<li class="done">SimpleWebSocketHandler: broadcastToSessions 消除三处重复; startsWith 精确匹配; getUri() null 保护; ping/pong心跳; @Scheduled 60s清90s僵尸; SLF4J</li>
+<li class="done">ChatWebSocketHandler: Map&lt;Long,Session&gt;→Map&lt;Long,Map&lt;String,Session&gt;&gt; 多设备支持</li>
+<li class="done">WebSocketService: 暴露 pushToUser/pushToPost/pushToAdmins API (供P3/P4/P6调用)</li>
+<li class="done"><strong>Chat</strong>: ChatService 6处@Autowired→构造器注入; doSendMessage 公共内核 (消85%重复)</li>
+<li class="done">getConversationMessages N+1修复 (批量 findAllById 建 Map)</li>
+<li class="done">ensureUserCanInteract 禁言过期自动写回 NORMAL+清空 muteUntil</li>
+<li class="done">ChatController/ChatFileController: 构造器注入 + 异常化错误 (throw Forbidden/BadRequest/Unauthorized)</li>
+<li class="done">3 测试类 (616行): ChatServiceTest + SimpleWebSocketHandlerTest + ChatWebSocketHandlerTest</li>
+</ul>
+
+<h3>变更文件</h3>
+<div class="section">
+<div><h4>新增 (WebSocket 消息)</h4><div class="file-list"><div class="new">websocket/WsPaths.java</div><div class="new">websocket/message/ChatMessage.java</div><div class="new">websocket/message/CommentCreatedMessage.java</div><div class="new">websocket/message/CommentDeletedMessage.java</div><div class="new">websocket/message/CommentLikeUpdateMessage.java</div><div class="new">websocket/message/CommentUpdatedMessage.java</div><div class="new">websocket/message/FavoriteUpdateMessage.java</div><div class="new">websocket/message/LikeUpdateMessage.java</div><div class="new">websocket/message/MessageReadMessage.java</div><div class="new">websocket/message/NotificationMessage.java</div><div class="new">websocket/message/OnlineStatusMessage.java</div><div class="new">websocket/message/PostStatusUpdateMessage.java</div><div class="new">websocket/message/TypingMessage.java</div><div class="new">websocket/message/UnreadCountUpdateMessage.java</div></div></div>
+<div><h4>修改</h4><div class="file-list"><div class="mod">chat/ChatController.java</div><div class="mod">chat/ChatFileController.java</div><div class="mod">chat/ChatService.java</div><div class="mod">websocket/ChatWebSocketHandler.java</div><div class="mod">websocket/ChatWebSocketService.java</div><div class="mod">websocket/SimpleWebSocketConfig.java</div><div class="mod">websocket/SimpleWebSocketHandler.java</div><div class="mod">websocket/WebSocketService.java</div></div></div>
+</div>
+</div></div>
+
+<!-- P6 -->
+<div class="agent-card" onclick="this.classList.toggle('open')">
+<div class="agent-header">
+  <div><span class="id">P6 — 后台管理 &amp; 举报</span><span class="domain">admin / report</span></div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <span class="badge badge-done">3 commits</span>
+    <span class="tag tag-mod">+56 源文件</span>
+    <span class="chevron">▾</span>
+  </div>
+</div>
+<div class="agent-body">
+
+<p style="color:var(--amber);font-size:.8rem;margin-bottom:8px">* Agent 完成工作后未 commit，已由 orchestrator 手工提交为 3 个 commit (56 files, +1779/−1733)</p>
+
+<h3>目标</h3>
+<p>AdminController 拆 5 个子控制器+@PreAuthorize、AdminService 修复分页破损、合并两套并行举报系统、ReportPostService 拆 User/Admin Service + PostVisibilityPolicy 策略模式。</p>
+
+<h3>Todo 完成情况</h3>
+<ul class="checklist">
+<li class="done"><strong>Admin 拆分</strong>: AdminController(554行)→AdminUser/Post/Report/Notice/Permission 5 个 Controller + AdminControllerHelper</li>
+<li class="done">全面 @PreAuthorize 替代手写 isAdmin/isSuperAdmin (修复 getAuditUsers 鉴权漏洞)</li>
+<li class="done">AdminService: ensureAdmin() + 用户搜索分页下推 SQL + 举报过滤下推 @Query + 禁言/hidePost 下沉 Service + SLF4J</li>
+<li class="done">AdminDtos(13类型)→拆分 11 个独立 record 到 admin/dto/</li>
+<li class="done"><strong>举报统一</strong>: ReportStatus 枚举统一到 admin/ReportStatus; 删除 report/ReportStatus.java + ReportController.java 空壳</li>
+<li class="done">ReportPostService(421行)→ReportPostUserService + ReportPostAdminService; PostDetailResponse 内嵌类提独立 record</li>
+<li class="done">PostVisibilityPolicy 策略模式替代 62 行 switch-case (Normal/Removed/Draft/Audit 4 个策略 + PostVisibilityResolver DI)</li>
+<li class="done">ReportUserController: 抽 ReportUserService, Map→OperationResponse, 补通知</li>
+<li class="done">ReportPostDtos(13 record)→拆 12 个独立文件到 report/dto/</li>
+<li class="done">AdminReportPostController: @PreAuthorize 化</li>
+<li class="done">8 个测试类 (38 tests): Admin 5 子 Controller + Report 3 Controller</li>
+<li class="partial">1 行跨域 import (PostService.java: report.ReportStatus→admin.ReportStatus, enum 统一必须, 与 P3 merge conflict 已手动解决)</li>
+</ul>
+
+<h3>变更文件</h3>
+<div class="section">
+<div><h4>新增 (admin)</h4><div class="file-list"><div class="new">admin/AdminApplicationStatus.java</div><div class="new">admin/AdminControllerHelper.java</div><div class="new">admin/AdminNoticeController.java</div><div class="new">admin/AdminPermissionController.java</div><div class="new">admin/AdminPostController.java</div><div class="new">admin/AdminReportController.java</div><div class="new">admin/AdminUserController.java</div><div class="new">admin/dto/AdminApplicationListResp.java</div><div class="new">admin/dto/AdminApplicationReq.java</div><div class="new">admin/dto/AdminApplicationResp.java</div><div class="new">admin/dto/HandleReportReq.java</div><div class="new">admin/dto/NoticeListResp.java</div><div class="new">admin/dto/NoticeReq.java</div><div class="new">admin/dto/NoticeResp.java</div><div class="new">admin/dto/ReportAction.java</div><div class="new">admin/dto/ReportListResp.java</div><div class="new">admin/dto/ReportResp.java</div><div class="new">admin/dto/SimpleUserInfo.java</div></div></div>
+<div><h4>新增 / 修改 (report)</h4><div class="file-list"><div class="new">report/AuditPostPolicy.java</div><div class="new">report/DraftPostPolicy.java</div><div class="new">report/NormalPostPolicy.java</div><div class="new">report/PostVisibilityPolicy.java (接口)</div><div class="new">report/PostVisibilityResolver.java</div><div class="new">report/RemovedPostPolicy.java</div><div class="new">report/ReportPostAdminService.java</div><div class="new">report/ReportPostUserService.java</div><div class="new">report/ReportUserService.java</div><div class="del">report/ReportPostService.java (删除)</div><div class="del">report/ReportController.java (删除, 死代码)</div><div class="del">report/ReportStatus.java (删除, 统一到admin)</div><div class="del">report/dto/ReportPostDtos.java (删除, split)</div><div class="new">report/dto/ (12 独立 record)</div><div class="mod">report/AdminReportPostController.java</div><div class="mod">report/ReportPost.java</div><div class="mod">report/ReportPostController.java</div><div class="mod">report/ReportPostRepository.java</div><div class="mod">report/ReportUserController.java</div></div></div>
+</div>
+</div></div>
+
+<!-- ====== TEST GROWTH ====== -->
+<h2>📈 测试增长</h2>
+<table>
+<tr><th>Agent</th><th>测试文件</th><th>新增测试</th><th>累计</th></tr>
+<tr><td>基线 (main)</td><td>1</td><td>—</td><td>~5</td></tr>
+<tr><td>P1 (已有)</td><td>3</td><td>+12</td><td>~17</td></tr>
+<tr><td>P7 试点</td><td>9</td><td>+31</td><td>43</td></tr>
+<tr><td>P2 auth/user</td><td>12</td><td>+42</td><td>85</td></tr>
+<tr><td>P5 chat/ws</td><td>12→15</td><td>+23</td><td>68 (并行基线)</td></tr>
+<tr><td>P3 post/arxiv</td><td>15→19</td><td>+34</td><td>77 (并行基线)</td></tr>
+<tr><td>P4 interaction</td><td>19→24</td><td>+46</td><td>89 (并行基线)</td></tr>
+<tr><td>P6 admin/report</td><td>24→32</td><td>+38</td><td>81 (并行基线)</td></tr>
+<tr style="font-weight:700;background:#f8f9fa"><td>合并后最终</td><td>32</td><td>—</td><td>228 ✓</td></tr>
+</table>
+
+<!-- ====== Token & Risk ====== -->
+<div class="section">
+<div>
+<h2>💰 Token 消耗 (Agent 合计)</h2>
+<table>
+<tr><th>Agent</th><th>Tokens</th><th>工具调用</th><th>耗时</th></tr>
+<tr><td>P7 pilot</td><td style="text-align:right">191,357</td><td style="text-align:right">115</td><td>~25 min</td></tr>
+<tr><td>P2 auth/user</td><td style="text-align:right">114,536</td><td style="text-align:right">101</td><td>~9 min</td></tr>
+<tr><td>P3 post/arxiv</td><td style="text-align:right">159,904</td><td style="text-align:right">88</td><td>~14 min</td></tr>
+<tr><td>P4 interaction</td><td style="text-align:right">140,837</td><td style="text-align:right">77</td><td>~14 min</td></tr>
+<tr><td>P5 chat/ws</td><td style="text-align:right">139,205</td><td style="text-align:right">124</td><td>~12 min</td></tr>
+<tr><td>P6 admin/report</td><td style="text-align:right">144,192</td><td style="text-align:right">130</td><td>~14 min</td></tr>
+<tr style="font-weight:700"><td>合计</td><td style="text-align:right">~890,000</td><td style="text-align:right">635</td><td>~88 min</td></tr>
+</table>
+</div>
+<div>
+<h2>⚠️ 已知风险与待补项</h2>
+<table>
+<tr><th>项</th><th>状态</th></tr>
+<tr><td>codex-review (P3–P6 四域)</td><td><span class="badge badge-pending">额度耗尽，待补</span></td></tr>
+<tr><td>anyRequest().permitAll() 收紧</td><td><span class="badge badge-partial">P2–P7 端点适配完后最后做</span></td></tr>
+<tr><td>前端状态管理接入</td><td><span class="badge badge-pending">未做 (Wave2)</span></td></tr>
+<tr><td>前端上帝文件拆分</td><td><span class="badge badge-pending">未做 (Wave2)</span></td></tr>
+<tr><td>api_service.dart 拆分清理</td><td><span class="badge badge-pending">未做 (Wave2)</span></td></tr>
+<tr><td>集成测试 (端到端)</td><td><span class="badge badge-partial">仅 @WebMvcTest/@DataJpaTest slice, 缺 @SpringBootTest 真集成</span></td></tr>
+<tr><td>mock_api_service 清理</td><td><span class="badge badge-pending">未做</span></td></tr>
+</table>
+</div>
+</div>
+
+<!-- ====== REVIEW & FIXES ====== -->
+<h2>🔍 独立审查与修复 (Review Agent)</h2>
+<div class="section">
+<div>
+<h4>审查 Agent</h4>
+<table>
+<tr><th>Agent ID</th><th>Tokens</th><th>工具调用</th><th>方法</th></tr>
+<tr><td>a1adc2</td><td style="text-align:right">63,573</td><td style="text-align:right">29</td><td>只读 worktree, git diff + 抽样审查 213 后端文件</td></tr>
+</table>
+</div>
+<div>
+<h4>发现与处理</h4>
+<table>
+<tr style="font-size:.8rem"><th>#</th><th>严重度</th><th>问题</th><th>根因</th></tr>
+<tr><td>1</td><td><span class="badge badge-done">误报</span></td><td style="font-size:.85rem">POST /posts/{postId}/report 路径丢失</td><td style="font-size:.85rem">P3 在 PostController 保留了端点(67行), P6 新增是额外端点</td></tr>
+<tr><td>2</td><td><span class="badge badge-partial">已修复</span></td><td style="font-size:.85rem">/users/{userId}/follow 变成 /follows</td><td style="font-size:.85rem">P4 FollowController 用了 @RequestMapping("/follows")</td></tr>
+<tr><td>3</td><td><span class="badge badge-partial">已修复</span></td><td style="font-size:.85rem">following/followers/mutual 三个端点丢失</td><td style="font-size:.85rem">P4 FollowController 只实现了 follow/unfollow</td></tr>
+<tr><td>4</td><td><span class="badge badge-partial">已修复</span></td><td style="font-size:.85rem">SecurityException 无 handler → 500</td><td style="font-size:.85rem">P3 抛 java.lang.SecurityException, GlobalExceptionHandler 不识别</td></tr>
+</table>
+<p style="font-size:.8rem;color:var(--muted);margin-top:4px"><strong>修复 commit:</strong> <code>47bb21b</code> — 4 files, +77/−11</p>
+</div>
+</div>
+
+<h3>🟡 风格建议 (不阻塞)</h3>
+<ul style="margin:4px 0 12px 20px;color:var(--muted);font-size:.85rem">
+<li>NotificationController / ReportController 仍有手动 ResponseEntity → 未统一 throw 异常</li>
+<li>GlobalExceptionHandlerTest / JwtServiceTest 覆盖不够 (缺边界)</li>
+<li>跨域一致性总体良好 ✓</li>
+</ul>
+
+<h3>📝 流程改进 (已写入 wave1-agent-constraints.md)</h3>
+<ul style="margin:4px 0 12px 20px;font-size:.85rem">
+<li><strong>G2.6.1 新增</strong>: agent 完成前必须 git commit + git status --porcelain 为空</li>
+<li><strong>G6 新增</strong>: API 后向兼容 — 路径不可变、端点不遗漏、拆前 grep @Mapping 列 checklist</li>
+</ul>
+
+<hr style="margin:24px 0">
+<p style="text-align:center;color:var(--muted);font-size:.8rem">
+  Wave1 Backend &nbsp;|&nbsp; 2026-06-17 &nbsp;|&nbsp; <code>refactor/wave1-base</code> &nbsp;|&nbsp; 228 tests green &nbsp;|&nbsp; Review fixes: <code>47bb21b</code>
+</p>
+
+<script>
+// Open first card by default
+document.querySelectorAll('.agent-card')[0].classList.add('open');
+</script>
+</body>
+</html>

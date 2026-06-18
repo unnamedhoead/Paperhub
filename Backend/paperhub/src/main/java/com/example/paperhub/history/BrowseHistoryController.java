@@ -1,15 +1,16 @@
 package com.example.paperhub.history;
 
 import com.example.paperhub.auth.User;
-import com.example.paperhub.post.Post;
+import com.example.paperhub.common.exception.UnauthorizedException;
+import com.example.paperhub.history.dto.BrowseHistoryListResp;
+import com.example.paperhub.history.dto.MessageResp;
+import com.example.paperhub.history.dto.RecordBrowseHistoryReq;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.Instant;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 @RestController
 @RequestMapping("/browse-history")
@@ -26,57 +27,28 @@ public class BrowseHistoryController {
      * 返回当前用户最近浏览的帖子列表。
      */
     @GetMapping
-    public ResponseEntity<Map<String, Object>> list(
+    public BrowseHistoryListResp list(
             @AuthenticationPrincipal User currentUser,
             @RequestParam(name = "limit", defaultValue = "50") int limit
     ) {
-        if (currentUser == null) {
-            return ResponseEntity.status(401).body(Map.of("message", "未认证，请先登录"));
-        }
-        Long userId = currentUser.getId();
+        Long userId = requireUserId(currentUser);
         List<BrowseHistory> history = browseHistoryService.getHistory(userId, limit);
-
-        var items = history.stream().map(h -> {
-            Map<String, Object> m = new HashMap<>();
-            Post p = h.getPost();
-            m.put("postId", p.getId());
-            m.put("title", h.getPostTitle());
-            m.put("viewedAt", h.getViewedAt().toString());
-            return m;
-        }).toList();
-
-        Map<String, Object> body = new HashMap<>();
-        body.put("items", items);
-        body.put("count", items.size());
-        body.put("timestamp", Instant.now().toString());
-        return ResponseEntity.ok(body);
+        return BrowseHistoryListResp.of(history);
     }
 
     /**
      * POST /browse-history
      * body: { "postId": 123, "title": "..." }
-     * 一般前端不需要单独调这个接口，因为你已经在详情页里记录，
-     * 但保留一个显式的记录接口也无妨。
+     * 显式记录一次浏览（前端通常在详情页内已记录，此接口作为补充）。
      */
     @PostMapping
-    public ResponseEntity<?> record(
+    public MessageResp record(
             @AuthenticationPrincipal User currentUser,
-            @RequestBody Map<String, Object> payload
+            @Valid @RequestBody RecordBrowseHistoryReq req
     ) {
-        if (currentUser == null) {
-            return ResponseEntity.status(401).body(Map.of("message", "未认证，请先登录"));
-        }
-        Long userId = currentUser.getId();
-        Object postIdRaw = payload.get("postId");
-        if (postIdRaw == null) {
-            return ResponseEntity.badRequest().body(Map.of("message", "postId 不能为空"));
-        }
-        Long postId = postIdRaw instanceof Number
-                ? ((Number) postIdRaw).longValue()
-                : Long.parseLong(postIdRaw.toString());
-        String title = payload.getOrDefault("title", "").toString();
-        browseHistoryService.recordHistory(userId, postId, title);
-        return ResponseEntity.ok(Map.of("message", "ok"));
+        Long userId = requireUserId(currentUser);
+        browseHistoryService.recordHistory(userId, req.postIdAsLong(), req.title());
+        return MessageResp.ok();
     }
 
     /**
@@ -84,14 +56,11 @@ public class BrowseHistoryController {
      * 删除当前用户针对某一帖子的浏览记录。
      */
     @DeleteMapping("/{postId}")
-    public ResponseEntity<?> deleteOne(
+    public ResponseEntity<Void> deleteOne(
             @AuthenticationPrincipal User currentUser,
             @PathVariable("postId") Long postId
     ) {
-        if (currentUser == null) {
-            return ResponseEntity.status(401).body(Map.of("message", "未认证，请先登录"));
-        }
-        Long userId = currentUser.getId();
+        Long userId = requireUserId(currentUser);
         browseHistoryService.deleteOne(userId, postId);
         return ResponseEntity.noContent().build();
     }
@@ -101,17 +70,18 @@ public class BrowseHistoryController {
      * 清空当前用户的所有浏览历史。
      */
     @DeleteMapping
-    public ResponseEntity<?> clearAll(
+    public ResponseEntity<Void> clearAll(
             @AuthenticationPrincipal User currentUser
     ) {
-        if (currentUser == null) {
-            return ResponseEntity.status(401).body(Map.of("message", "未认证，请先登录"));
-        }
-        Long userId = currentUser.getId();
+        Long userId = requireUserId(currentUser);
         browseHistoryService.clearAll(userId);
         return ResponseEntity.noContent().build();
     }
+
+    private Long requireUserId(User currentUser) {
+        if (currentUser == null) {
+            throw new UnauthorizedException("未认证，请先登录");
+        }
+        return currentUser.getId();
+    }
 }
-
-
-

@@ -23,8 +23,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+// Slice test for the security filter chain: public whitelist, JWT filter, and role-based gating.
 @WebMvcTest(controllers = SecurityConfigTest.TestController.class)
-@Import({SecurityConfig.class, JwtAuthenticationFilter.class})
+@Import({SecurityConfig.class, JwtAuthenticationFilter.class, SecurityConfigTest.TestController.class})
 @TestPropertySource(properties = "app.cors.allowed-origins=*")
 class SecurityConfigTest {
     @Autowired

@@ -4,16 +4,21 @@ import com.example.paperhub.auth.User;
 import com.example.paperhub.auth.UserRepository;
 import com.example.paperhub.auth.UserRole;
 import com.example.paperhub.auth.UserStatus;
+import com.example.paperhub.common.exception.NotFoundException;
 import com.example.paperhub.favorite.FavoritePostRepository;
 import com.example.paperhub.follow.UserFollowRepository;
 import com.example.paperhub.like.PostLikeRepository;
 import com.example.paperhub.post.PostRepository;
-import com.example.paperhub.user.dto.UserDtos;
+import com.example.paperhub.user.dto.ProfileResp;
+import com.example.paperhub.user.dto.PrivacySettingsResp;
+import com.example.paperhub.user.dto.UpdatePrivacySettingsReq;
+import com.example.paperhub.user.dto.UpdateProfileReq;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 /**
@@ -43,11 +48,11 @@ public class UserService {
     /**
      * 将 User 实体转换为前端需要的 ProfileResp。
      */
-    public UserDtos.ProfileResp toProfile(User user) {
+    public ProfileResp toProfile(User user) {
         return toProfile(user, null);
     }
 
-    public UserDtos.ProfileResp toProfile(User user, User viewer) {
+    public ProfileResp toProfile(User user, User viewer) {
         long followingCount = followRepository.countByFollowerId(user.getId());
         long followersCount = followRepository.countByFollowingId(user.getId());
         long favoritesCount = favoriteRepository.countByUserId(user.getId());
@@ -72,7 +77,7 @@ public class UserService {
             statusMessage = "该用户被禁言中";
         }
 
-        return new UserDtos.ProfileResp(
+        return new ProfileResp(
                 user.getId(),
                 user.getEmail(),
                 role.name(),
@@ -100,7 +105,8 @@ public class UserService {
     /**
      * 更新当前登录用户的基础资料。
      */
-    public User updateProfile(User user, UserDtos.UpdateProfileReq req) {
+    @Transactional
+    public User updateProfile(User user, UpdateProfileReq req) {
         user.setName(req.name());
         if (req.bio() != null) {
             user.setBio(req.bio());
@@ -168,6 +174,61 @@ public class UserService {
             return true;
         }
         return java.time.Instant.now().isBefore(user.getMuteUntil());
+    }
+
+    // ── 供 Controller 使用的辅助方法（避免 Controller 直接访问 Repository）──
+
+    /**
+     * 按 ID 查找用户，若不存在则 throw NotFoundException。
+     */
+    public User getUserById(Long userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("用户不存在"));
+    }
+
+    /**
+     * 更新当前用户的隐私设置。
+     */
+    @Transactional
+    public PrivacySettingsResp updatePrivacy(User user, UpdatePrivacySettingsReq req) {
+        if (req.hideFollowing() != null) {
+            user.setHideFollowing(Boolean.TRUE.equals(req.hideFollowing()));
+        }
+        if (req.hideFollowers() != null) {
+            user.setHideFollowers(Boolean.TRUE.equals(req.hideFollowers()));
+        }
+        if (req.publicFavorites() != null) {
+            user.setPublicFavorites(Boolean.TRUE.equals(req.publicFavorites()));
+        }
+        userRepository.save(user);
+        return new PrivacySettingsResp(
+                user.isHideFollowing(),
+                user.isHideFollowers(),
+                user.isPublicFavorites()
+        );
+    }
+
+    /**
+     * 持久化用户（头像/背景上传后保存）。
+     */
+    @Transactional
+    public void saveUser(User user) {
+        userRepository.save(user);
+    }
+
+    /**
+     * 按用户 ID 重新加载实体（获取最新的数据库状态）。
+     */
+    public User refreshUser(Long userId) {
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new IllegalStateException("当前用户不存在"));
+    }
+
+    /**
+     * 按名称模糊搜索用户。
+     */
+    public List<User> searchByName(String name) {
+        return userRepository.findByNameContainingIgnoreCase(name);
     }
 }
 

@@ -4,6 +4,9 @@ import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 @Repository
@@ -16,5 +19,9 @@ public interface FavoritePostRepository extends JpaRepository<FavoritePost, Long
     long countByPostAuthorId(Long authorId);
     Optional<FavoritePost> findByUserIdAndPostId(Long userId, Long postId);
     void deleteByPostId(Long postId);
+
+    @Modifying
+    @Query("UPDATE Post p SET p.favoriteCount = p.favoriteCount + :delta WHERE p.id = :postId")
+    void incrementFavoriteCount(@Param("postId") Long postId, @Param("delta") int delta);
 }
 

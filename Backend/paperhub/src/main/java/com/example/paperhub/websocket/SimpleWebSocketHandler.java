@@ -1,6 +1,9 @@
 package com.example.paperhub.websocket;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -8,186 +11,266 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.io.IOException;
+import java.net.URI;
+import java.time.Instant;
+import java.util.Collection;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 简单的WebSocket处理器
- * 处理原生WebSocket连接，不使用STOMP
+ * Unified WebSocket handler for posts, admin, and user-notification streams.
+ * <p>
+ * Path routing (exact prefix match via {@link WsPaths}):
+ * <ul>
+ *   <li>{@code /ws/posts/{postId}}  — post-scoped updates (likes, comments, etc.)</li>
+ *   <li>{@code /ws/admin}           — admin broadcast</li>
+ *   <li>{@code /ws/notifications/{userId}} — per-user notification push</li>
+ * </ul>
+ * </p>
  */
 @Component
 public class SimpleWebSocketHandler extends TextWebSocketHandler {
-    // 存储每个帖子ID对应的WebSocket会话
+
+    private static final Logger log = LoggerFactory.getLogger(SimpleWebSocketHandler.class);
+
+    /** Max idle time before a session is considered a zombie (millis). */
+    private static final long SESSION_TTL_MS = 90_000L;
+
+    // postId -> (sessionId -> session)
     private final Map<Long, Map<String, WebSocketSession>> postSessions = new ConcurrentHashMap<>();
-    // 存储管理员WebSocket会话
+    // sessionId -> session
     private final Map<String, WebSocketSession> adminSessions = new ConcurrentHashMap<>();
-    // 存储用户ID对应的WebSocket会话（用于实时通知）
+    // userId -> (sessionId -> session)
     private final Map<Long, Map<String, WebSocketSession>> userSessions = new ConcurrentHashMap<>();
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @Override
-    public void afterConnectionEstablished(WebSocketSession session) throws Exception {
-        // 从URI中提取postId或判断是否为admin连接
-        String path = session.getUri().getPath();
+    // ── Connection lifecycle ──────────────────────────────────────────────
 
-        if (path.contains("/admin")) {
-            // 管理员连接
+    @Override
+    public void afterConnectionEstablished(WebSocketSession session) {
+        String path = safePath(session);
+        if (path == null) {
+            log.warn("WebSocket connected without URI, closing: sessionId={}", session.getId());
+            closeQuietly(session, CloseStatus.BAD_DATA);
+            return;
+        }
+
+        if (path.startsWith(WsPaths.ADMIN)) {
             adminSessions.put(session.getId(), session);
-            System.out.println("管理员WebSocket连接建立: " + session.getId());
-        } else if (path.contains("/notifications")) {
-            // 用户通知连接
+            log.info("Admin WebSocket connected: sessionId={}", session.getId());
+        } else if (path.startsWith(WsPaths.NOTIFICATIONS)) {
             Long userId = extractUserId(path);
             if (userId != null) {
                 userSessions.computeIfAbsent(userId, k -> new ConcurrentHashMap<>())
-                    .put(session.getId(), session);
-                System.out.println("用户通知WebSocket连接建立: userId=" + userId + ", sessionId=" + session.getId());
+                        .put(session.getId(), session);
+                log.info("User notification WebSocket connected: userId={}, sessionId={}", userId, session.getId());
+            } else {
+                log.warn("Could not extract userId from notification path: {}", path);
             }
-        } else {
+        } else if (path.startsWith(WsPaths.POSTS)) {
             Long postId = extractPostId(path);
             if (postId != null) {
                 postSessions.computeIfAbsent(postId, k -> new ConcurrentHashMap<>())
-                    .put(session.getId(), session);
-            }
-        }
-    }
-
-    @Override
-    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) throws Exception {
-        // 移除会话
-        String path = session.getUri().getPath();
-
-        if (path.contains("/admin")) {
-            adminSessions.remove(session.getId());
-            System.out.println("管理员WebSocket连接关闭: " + session.getId());
-        } else if (path.contains("/notifications")) {
-            Long userId = extractUserId(path);
-            if (userId != null) {
-                Map<String, WebSocketSession> sessions = userSessions.get(userId);
-                if (sessions != null) {
-                    sessions.remove(session.getId());
-                    if (sessions.isEmpty()) {
-                        userSessions.remove(userId);
-                    }
-                }
-                System.out.println("用户通知WebSocket连接关闭: userId=" + userId + ", sessionId=" + session.getId());
+                        .put(session.getId(), session);
+                log.debug("Post WebSocket connected: postId={}, sessionId={}", postId, session.getId());
+            } else {
+                log.warn("Could not extract postId from path: {}", path);
             }
         } else {
+            log.warn("WebSocket connected with unknown path: {}", path);
+        }
+    }
+
+    @Override
+    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+        String path = safePath(session);
+        if (path == null) {
+            return;
+        }
+
+        if (path.startsWith(WsPaths.ADMIN)) {
+            adminSessions.remove(session.getId());
+            log.info("Admin WebSocket disconnected: sessionId={}", session.getId());
+        } else if (path.startsWith(WsPaths.NOTIFICATIONS)) {
+            Long userId = extractUserId(path);
+            if (userId != null) {
+                removeSessionFromMap(userSessions, userId, session.getId());
+                log.debug("User notification WebSocket disconnected: userId={}, sessionId={}", userId, session.getId());
+            }
+        } else if (path.startsWith(WsPaths.POSTS)) {
             Long postId = extractPostId(path);
             if (postId != null) {
-                Map<String, WebSocketSession> sessions = postSessions.get(postId);
-                if (sessions != null) {
-                    sessions.remove(session.getId());
-                    if (sessions.isEmpty()) {
-                        postSessions.remove(postId);
-                    }
-                }
+                removeSessionFromMap(postSessions, postId, session.getId());
+                log.debug("Post WebSocket disconnected: postId={}, sessionId={}", postId, session.getId());
             }
         }
     }
 
     @Override
-    protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
-        // 可以处理客户端发送的消息，这里暂时不需要
+    protected void handleTextMessage(WebSocketSession session, TextMessage message) {
+        String payload = message.getPayload();
+        if ("ping".equals(payload) || "PING".equals(payload)) {
+            try {
+                if (session.isOpen()) {
+                    session.sendMessage(new TextMessage("pong"));
+                }
+            } catch (IOException e) {
+                log.debug("Failed to send pong to session={}", session.getId());
+            }
+        }
+        // Other client-to-server messages can be handled here if needed.
     }
 
-    /**
-     * 向指定帖子的所有客户端发送消息
-     */
+    // ── Broadcast API ─────────────────────────────────────────────────────
+
+    /** Send a JSON-serialised message to every session watching a post. */
     public void sendToPost(Long postId, Object message) {
         Map<String, WebSocketSession> sessions = postSessions.get(postId);
-        if (sessions != null) {
-            try {
-                String json = objectMapper.writeValueAsString(message);
-                TextMessage textMessage = new TextMessage(json);
+        if (sessions != null && !sessions.isEmpty()) {
+            broadcastToSessions(sessions.values(), message);
+        }
+    }
 
-                sessions.values().forEach(session -> {
-                    try {
-                        if (session.isOpen()) {
-                            session.sendMessage(textMessage);
-                        }
-                    } catch (IOException e) {
-                        // 记录错误
-                        e.printStackTrace();
-                    }
-                });
-            } catch (Exception e) {
-                e.printStackTrace();
+    /** Send a JSON-serialised message to every admin session. */
+    public void sendToAdmins(Object message) {
+        if (!adminSessions.isEmpty()) {
+            broadcastToSessions(adminSessions.values(), message);
+        }
+    }
+
+    /** Send a JSON-serialised message to every session owned by a user. */
+    public void sendToUser(Long userId, Object message) {
+        Map<String, WebSocketSession> sessions = userSessions.get(userId);
+        if (sessions != null && !sessions.isEmpty()) {
+            broadcastToSessions(sessions.values(), message);
+        }
+    }
+
+    // ── Internal helpers ──────────────────────────────────────────────────
+
+    /**
+     * Serialise {@code message} to JSON once, then send to every open session.
+     * Closed sessions are silently skipped (they will be cleaned up by the
+     * scheduled heartbeat task).
+     */
+    private void broadcastToSessions(Collection<WebSocketSession> sessions, Object message) {
+        String json;
+        try {
+            json = objectMapper.writeValueAsString(message);
+        } catch (Exception e) {
+            log.error("Failed to serialise WebSocket message: {}", e.getMessage(), e);
+            return;
+        }
+        TextMessage textMessage = new TextMessage(json);
+        for (WebSocketSession session : sessions) {
+            try {
+                if (session.isOpen()) {
+                    session.sendMessage(textMessage);
+                }
+            } catch (IOException e) {
+                log.debug("Failed to send to session={}: {}", session.getId(), e.getMessage());
             }
         }
     }
 
-    /**
-     * 向所有管理员客户端发送消息
-     */
-    public void sendToAdmins(Object message) {
-        try {
-            String json = objectMapper.writeValueAsString(message);
-            TextMessage textMessage = new TextMessage(json);
-
-            adminSessions.values().forEach(session -> {
-                try {
-                    if (session.isOpen()) {
-                        session.sendMessage(textMessage);
-                    }
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            });
-        } catch (Exception e) {
-            e.printStackTrace();
+    /** Remove a single session from a nested map, cleaning empty inner maps. */
+    private static <K> void removeSessionFromMap(Map<K, Map<String, WebSocketSession>> outer,
+                                                  K key, String sessionId) {
+        Map<String, WebSocketSession> inner = outer.get(key);
+        if (inner != null) {
+            inner.remove(sessionId);
+            if (inner.isEmpty()) {
+                outer.remove(key);
+            }
         }
     }
 
-    private Long extractPostId(String path) {
+    private static String safePath(WebSocketSession session) {
+        URI uri = session.getUri();
+        return uri != null ? uri.getPath() : null;
+    }
+
+    // ── Path extraction ───────────────────────────────────────────────────
+
+    private static Long extractPostId(String path) {
+        // /ws/posts/{postId}
         try {
-            // 路径格式: /ws/posts/{postId}
             String[] parts = path.split("/");
             if (parts.length >= 4 && "posts".equals(parts[2])) {
                 return Long.parseLong(parts[3]);
             }
-        } catch (Exception e) {
-            // 忽略解析错误
+        } catch (Exception ignored) {
+            // malformed id — ignore
         }
         return null;
     }
 
-    private Long extractUserId(String path) {
+    private static Long extractUserId(String path) {
+        // /ws/notifications/{userId}
         try {
-            // 路径格式: /ws/notifications/{userId}
             String[] parts = path.split("/");
             if (parts.length >= 4 && "notifications".equals(parts[2])) {
                 return Long.parseLong(parts[3]);
             }
-        } catch (Exception e) {
-            // 忽略解析错误
+        } catch (Exception ignored) {
+            // malformed id — ignore
         }
         return null;
     }
 
-    /**
-     * 向指定用户的所有客户端发送消息
-     */
-    public void sendToUser(Long userId, Object message) {
-        Map<String, WebSocketSession> sessions = userSessions.get(userId);
-        if (sessions != null) {
-            try {
-                String json = objectMapper.writeValueAsString(message);
-                TextMessage textMessage = new TextMessage(json);
+    private static void closeQuietly(WebSocketSession session, CloseStatus status) {
+        try {
+            if (session.isOpen()) {
+                session.close(status);
+            }
+        } catch (IOException ignored) {
+            // best-effort
+        }
+    }
 
-                sessions.values().forEach(session -> {
-                    try {
-                        if (session.isOpen()) {
-                            session.sendMessage(textMessage);
-                        }
-                    } catch (IOException e) {
-                        // 记录错误
-                        e.printStackTrace();
-                    }
-                });
-            } catch (Exception e) {
-                e.printStackTrace();
+    // ── Heartbeat / zombie cleanup ────────────────────────────────────────
+
+    /**
+     * Every 60 seconds, remove sessions that have been idle for more than
+     * {@link #SESSION_TTL_MS} (90 s).  This prevents stale sessions from
+     * accumulating when clients disconnect without a proper close frame.
+     */
+    @Scheduled(fixedRate = 60_000)
+    public void purgeZombieSessions() {
+        Instant cutoff = Instant.now().minusMillis(SESSION_TTL_MS);
+        purgeSessions(postSessions, cutoff);
+        purgeAdminSessions(cutoff);
+        purgeSessions(userSessions, cutoff);
+    }
+
+    private void purgeSessions(Map<Long, Map<String, WebSocketSession>> outer, Instant cutoff) {
+        Iterator<Map.Entry<Long, Map<String, WebSocketSession>>> outerIt = outer.entrySet().iterator();
+        while (outerIt.hasNext()) {
+            Map.Entry<Long, Map<String, WebSocketSession>> entry = outerIt.next();
+            Map<String, WebSocketSession> inner = entry.getValue();
+            inner.values().removeIf(session -> isZombie(session, cutoff));
+            if (inner.isEmpty()) {
+                outerIt.remove();
             }
         }
     }
-}
 
+    private void purgeAdminSessions(Instant cutoff) {
+        adminSessions.values().removeIf(session -> isZombie(session, cutoff));
+    }
+
+    private static boolean isZombie(WebSocketSession session, Instant cutoff) {
+        try {
+            if (!session.isOpen()) return true;
+            // lastAccessTime is available from Spring 6.x / Boot 3.x
+            long lastAccess = session.getAttributes().containsKey("lastAccessTime")
+                    ? (Long) session.getAttributes().get("lastAccessTime")
+                    : System.currentTimeMillis();
+            return lastAccess < cutoff.toEpochMilli();
+        } catch (Exception e) {
+            return true; // if anything goes wrong, remove it
+        }
+    }
+}
