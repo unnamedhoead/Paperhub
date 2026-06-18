@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Paperhub Wave2 — 前端重构完整报告</title>
+<style>
+:root{--bg:#f8f9fa;--card:#fff;--text:#212529;--muted:#6c757d;--border:#dee2e6;--green:#198754;--blue:#0d6efd;--red:#dc3545;--amber:#fd7e14}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;padding:24px;max-width:1200px;margin:0 auto}
+h1{font-size:2rem;margin-bottom:4px}h2{font-size:1.4rem;margin:32px 0 12px;padding-bottom:6px;border-bottom:2px solid var(--border)}
+h3{font-size:1.1rem;margin:16px 0 8px}.subtitle{color:var(--muted);font-size:.95rem;margin-bottom:24px}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:16px 0 24px}
+.kpi{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.kpi .num{font-size:2rem;font-weight:700}.kpi .label{font-size:.8rem;color:var(--muted)}.kpi.green .num{color:var(--green)}.kpi.blue .num{color:var(--blue)}
+table{width:100%;border-collapse:collapse;margin:8px 0 16px;font-size:.9rem}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--border)}
+th{font-weight:600;color:var(--muted);font-size:.8rem;text-transform:uppercase}tr:hover{background:#f8f9fa}
+.tag{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600}
+.tag-done{background:#d1e7dd;color:#0f5132}.tag-partial{background:#fff3cd;color:#664d03}.tag-pending{background:#f8d7da;color:#842029}
+.section{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}.section.full{grid-template-columns:1fr}
+@media(max-width:768px){.section{grid-template-columns:1fr}body{padding:12px}}
+.chip{display:inline-block;padding:1px 8px;border-radius:10px;font-size:.75rem;font-weight:600;margin:2px}
+.chip-g{background:#d1e7dd;color:#0f5132}.chip-y{background:#fff3cd;color:#664d03}.chip-r{background:#f8d7da;color:#842029}
+</style>
+</head>
+<body>
+
+<h1>📋 Paperhub Wave2 — 前端重构完整报告</h1>
+<p class="subtitle">基线: <code>refactor/wave1-base</code> | 日期: 2026-06-17/18 | 方法: 6 隔离 worktree agent 并行 + Pre-flight + 3 审查修复 agent</p>
+
+<div class="kpi-grid">
+<div class="kpi green"><div class="num">101</div><div class="label">前端测试 (全绿)</div></div>
+<div class="kpi blue"><div class="num">~1.44M</div><div class="label">Agent Token</div></div>
+<div class="kpi"><div class="num">~90</div><div class="label">变更文件</div></div>
+<div class="kpi"><div class="num">+17.7K</div><div class="label">新增行</div></div>
+<div class="kpi"><div class="num">−16.4K</div><div class="label">删除行</div></div>
+<div class="kpi green"><div class="num">8</div><div class="label">上帝文件拆分</div></div>
+<div class="kpi amber"><div class="num">15</div><div class="label">Bug 修复</div></div>
+<div class="kpi"><div class="num">0</div><div class="label">analyze errors</div></div>
+</div>
+
+<hr style="border:none;border-top:1px solid var(--border);margin:12px 0 24px">
+
+<h2>🤖 Agent 一览</h2>
+<table>
+<tr><th>Agent</th><th>Domain</th><th>Tokens</th><th>Commits</th><th>Tests</th><th>关键产出</th></tr>
+<tr><td>Pre-flight</td><td>api_service split</td><td style="text-align:right">99,972</td><td style="text-align:center">1</td><td>5→5</td><td>api_service 114方法→9域API+facade</td></tr>
+<tr><td>P2</td><td>auth/user</td><td style="text-align:right">164,274</td><td style="text-align:center">3</td><td>+17</td><td>profile 2312→5文件, UserRole/Status枚举, auth pages清理</td></tr>
+<tr><td>P3a</td><td>note_editor+arxiv</td><td>cherry-pick</td><td style="text-align:center">2</td><td>—</td><td>note_editor 2284→5文件, arXivApi, arxiv_service fix</td></tr>
+<tr><td>P3b</td><td>post_detail split</td><td style="text-align:right">125,821</td><td style="text-align:center">2</td><td>84→84</td><td>post_detail skeleton+3 extensions ▶ 后改为独立Widget</td></tr>
+<tr><td>P4</td><td>interaction</td><td style="text-align:right">153,701</td><td style="text-align:center">3</td><td>+20</td><td>comment widgets, FollowController, notification pages</td></tr>
+<tr><td>P5</td><td>chat/ws</td><td style="text-align:right">171,112</td><td style="text-align:center">4</td><td>+8</td><td>message_bubble 1257→8子类, chat_input 790→3, 轮询→WS, 死代码删</td></tr>
+<tr><td>P6</td><td>admin/report</td><td style="text-align:right">154,743</td><td style="text-align:center">3</td><td>+20</td><td>admin 3053→8文件, 6 bug修复, MUTE/AUDIT标签</td></tr>
+<tr><td>P7</td><td>browse/search</td><td style="text-align:right">173,590</td><td style="text-align:center">4</td><td>+14</td><td>FeedWidget, LocalJsonListStore<T>, home 1405→1017</td></tr>
+<tr><td>P3c (R1)</td><td>post_detail redo</td><td style="text-align:right">155,092</td><td style="text-align:center">4</td><td>101→101</td><td>extension→PostActionsBar/PostContentView/PostMediaGallery 独立Widget</td></tr>
+<tr><td>R2</td><td>notification_list</td><td style="text-align:right">72,750</td><td style="text-align:center">2</td><td>84→84</td><td>notification 1031→5文件 (4种通知独立widget)</td></tr>
+<tr><td>R4</td><td>http_client test</td><td style="text-align:right">98,737</td><td style="text-align:center">1</td><td>+17</td><td>http_client 3→20 tests, 覆盖get/post/put/delete/401/refresh</td></tr>
+<tr style="font-weight:700;background:#f8f9fa"><td colspan="2">合计 (11 agents)</td><td style="text-align:right">~1.37M</td><td style="text-align:center">29</td><td>5→101</td><td></td></tr>
+</table>
+
+<h2>📦 上帝文件拆分效果</h2>
+<table>
+<tr><th>文件</th><th>拆分前</th><th>拆分后</th><th>子文件</th><th>方法</th><th>评价</th></tr>
+<tr><td>post_detail_screen</td><td>4431</td><td>~3124</td><td>PostActionsBar+PostContentView+PostMediaGallery+ClicableTags+PdfPreview+ShareSheet</td><td>独立Widget</td><td><span class="chip chip-y">独立Widget但骨架仍大</span></td></tr>
+<tr><td>admin_mode_screen</td><td>3053</td><td>~230骨架</td><td>8 section widget + controller + common</td><td>独立StatefulWidget</td><td><span class="chip chip-g">优秀</span></td></tr>
+<tr><td>profile_screen</td><td>2312</td><td>2行facade</td><td>5 (screen+header+tabs+edit+controller)</td><td>独立Widget+Controller</td><td><span class="chip chip-g">优秀</span></td></tr>
+<tr><td>note_editor_page</td><td>2284</td><td>迁移后</td><td>5 (screen+controller+media+arxiv+ref)</td><td>独立Widget+extension controller</td><td><span class="chip chip-y">controller仍为extension</span></td></tr>
+<tr><td>message_screen</td><td>1684</td><td>10行facade</td><td>3 (screen+conversation+notification→5)</td><td>独立Widget</td><td><span class="chip chip-g">优秀</span></td></tr>
+<tr><td>message_bubble</td><td>1257</td><td>14行dispatch</td><td>8 (基类+7子类)</td><td>子类Widget</td><td><span class="chip chip-g">优秀</span></td></tr>
+<tr><td>chat_input</td><td>790</td><td>280骨架</td><td>3 (input+audio+attachment)</td><td>独立Widget</td><td><span class="chip chip-g">优秀</span></td></tr>
+<tr><td>home_screen</td><td>1405</td><td>1017</td><td>1 (FeedWidget 345行)</td><td>独立Widget</td><td><span class="chip chip-y">仍有拆分空间</span></td></tr>
+</table>
+
+<h2>🔧 Bug 修复 (15 项全部落实)</h2>
+<div class="section">
+<div>
+<h4>后端 (Wave1)</h4>
+<table>
+<tr><td>JWT secret 明文默认→强制配置</td><td><span class="tag tag-done">✅</span></td></tr>
+<tr><td>RBAC 硬编码 ROLE_USER→动态角色</td><td><span class="tag tag-done">✅</span></td></tr>
+<tr><td>NoResourceFoundException 吞500→404</td><td><span class="tag tag-done">✅</span></td></tr>
+<tr><td>BrowseHistory 容量裁剪从未触发</td><td><span class="tag tag-done">✅</span></td></tr>
+<tr><td>Token 撤销/黑名单/Refresh 轮换</td><td><span class="tag tag-done">✅</span></td></tr>
+</table>
+</div>
+<div>
+<h4>前端 (Wave2)</h4>
+<table>
+<tr><td>MUTED→MUTE 状态标签匹配</td><td><span class="tag tag-done">✅</span></td></tr>
+<tr><td>AUDIT→待审核 状态标签</td><td><span class="tag tag-done">✅</span></td></tr>
+<tr><td>举报人重复显示删除</td><td><span class="tag tag-done">✅</span></td></tr>
+<tr><td>_viewPostDetail 合并</td><td><span class="tag tag-done">✅</span></td></tr>
+<tr><td>_getUserDisplayName 抽取</td><td><span class="tag tag-done">✅</span></td></tr>
+<tr><td>report_post_dialog statusCode+success</td><td><span class="tag tag-done">✅</span></td></tr>
+<tr><td>_contentFocusNode.dispose()</td><td><span class="tag tag-done">✅</span></td></tr>
+<tr><td>mounted 检查 (6处 await后)</td><td><span class="tag tag-done">✅</span></td></tr>
+<tr><td>UploadFileType enum</td><td><span class="tag tag-done">✅</span></td></tr>
+<tr><td>chat_screen 死代码删除 (4变量)</td><td><span class="tag tag-done">✅</span></td></tr>
+</table>
+</div>
+</div>
+
+<h2>🔍 审查与修复</h2>
+<table>
+<tr><th>审查</th><th>Tokens</th><th>发现</th><th>处理</th></tr>
+<tr><td>Review Agent</td><td style="text-align:right">71,686</td><td>4阻断 + 7建议</td><td>全部修复 (R1-R4, 3 agent)</td></tr>
+<tr><td>R1 post_detail redo</td><td style="text-align:right">155,092</td><td>extension 假拆分</td><td>→3个独立StatelessWidget ✅</td></tr>
+<tr><td>R2 notification_list</td><td style="text-align:right">72,750</td><td>1031行上帝文件</td><td>→5文件 (4种通知独立widget) ✅</td></tr>
+<tr><td>R3 state mgmt</td><td>manual</td><td>3种模式混用</td><td>→ChangeNotifier统一规范文档 ✅</td></tr>
+<tr><td>R4 http_client</td><td style="text-align:right">98,737</td><td>仅3个测试</td><td>→20 tests (get/post/put/delete/401/refresh) ✅</td></tr>
+</table>
+
+<h2>📊 跨域一致性评分</h2>
+<table>
+<tr><th>维度</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>P7</th></tr>
+<tr><td>独立Widget拆分</td><td><span class="chip chip-g">✓</span></td><td><span class="chip chip-y">△</span></td><td><span class="chip chip-g">✓</span></td><td><span class="chip chip-g">✓</span></td><td><span class="chip chip-g">✓</span></td><td><span class="chip chip-y">△</span></td></tr>
+<tr><td>Controller模式</td><td><span class="chip chip-y">static</span></td><td><span class="chip chip-r">extension</span></td><td><span class="chip chip-g">ChangeN.</span></td><td><span class="chip chip-r">setState</span></td><td><span class="chip chip-g">ChangeN.</span></td><td><span class="chip chip-r">setState</span></td></tr>
+<tr><td>API调用方式</td><td><span class="chip chip-g">direct</span></td><td><span class="chip chip-y">mixed</span></td><td><span class="chip chip-g">direct</span></td><td><span class="chip chip-y">facade</span></td><td><span class="chip chip-g">direct</span></td><td><span class="chip chip-y">facade</span></td></tr>
+<tr><td>错误处理</td><td><span class="chip chip-g">try/catch</span></td><td><span class="chip chip-y">mixed</span></td><td><span class="chip chip-g">try/catch</span></td><td><span class="chip chip-y">mixed</span></td><td><span class="chip chip-g">try/catch</span></td><td><span class="chip chip-g">try/catch</span></td></tr>
+</table>
+
+<h2>📈 未完成任务对照</h2>
+<p style="color:var(--muted);font-size:.9rem">详见 <code>docs/refactor/remaining-tasks.md</code></p>
+<table>
+<tr><th>分类</th><th>总数</th><th>✅ 完成</th><th>⚠️ 部分</th><th>❌ 未做</th></tr>
+<tr><td>🔴 安全</td><td style="text-align:center">2</td><td style="text-align:center">0</td><td style="text-align:center">2</td><td style="text-align:center">0</td></tr>
+<tr><td>🟡 基础设施</td><td style="text-align:center">6</td><td style="text-align:center">0</td><td style="text-align:center">3</td><td style="text-align:center">3</td></tr>
+<tr><td>🟡 上帝文件</td><td style="text-align:center">10</td><td style="text-align:center">0</td><td style="text-align:center">10</td><td style="text-align:center">0</td></tr>
+<tr><td>🟡 架构改进</td><td style="text-align:center">4</td><td style="text-align:center">0</td><td style="text-align:center">0</td><td style="text-align:center">4</td></tr>
+<tr><td>🟡 设计/算法/规范</td><td style="text-align:center">10</td><td style="text-align:center">0</td><td style="text-align:center">6</td><td style="text-align:center">4</td></tr>
+<tr><td>🟢 目录/命名</td><td style="text-align:center">6</td><td style="text-align:center">0</td><td style="text-align:center">1</td><td style="text-align:center">5</td></tr>
+<tr><td>🟢 测试</td><td style="text-align:center">6</td><td style="text-align:center">0</td><td style="text-align:center">4</td><td style="text-align:center">2</td></tr>
+<tr style="font-weight:700"><td>合计</td><td style="text-align:center">44</td><td style="text-align:center">0</td><td style="text-align:center">26</td><td style="text-align:center">18</td></tr>
+</table>
+
+<hr style="margin:24px 0">
+<p style="text-align:center;color:var(--muted);font-size:.8rem">
+  Paperhub Wave2 Frontend Refactoring Report | 2026-06-18 | <code>refactor/wave1-base</code> | 101 tests green | 0 errors
+</p>
+</body>
+</html>

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../config/app_env.dart';
 
 /// arXiv 文献元数据模型
 class ArxivMetadata {
@@ -44,10 +45,10 @@ class ArxivMetadata {
 class ArxivService {
   // 使用后端代理解决 CORS 问题
   // 后端代理端点：GET /arxiv?id=1234.5678
-  //static const String _proxyBaseUrl = 'http://localhost:8080/arxiv';
-  static const String _proxyBaseUrl = 'http://1.95.209.72:8080/arxiv';
+  // Proxy address now uses AppEnv.apiBaseUrl for environment-awareness
+  static String get _proxyBaseUrl => '${AppEnv.apiBaseUrl}/arxiv';
   static const String _arxivBaseUrl = 'http://export.arxiv.org/api/query';
-  
+
   // 优先使用后端代理（推荐），如果后端未配置则回退到直接访问
   // 注意：直接访问可能在 Web 平台遇到 CORS 问题
   static const bool _useProxy = true; // 设置为 true 使用后端代理

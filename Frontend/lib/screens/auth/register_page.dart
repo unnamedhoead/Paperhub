@@ -1,19 +1,19 @@
 import 'package:flutter/material.dart';
-import '../services/api_service.dart';
-import '../widgets/animated_title_background.dart';
-import '../constants/app_colors.dart';
-import '../utils/font_utils.dart';
+import 'package:email_validator/email_validator.dart';
+import '../../services/api/auth_api.dart';
+import '../../widgets/animated_title_background.dart';
+import '../../constants/app_colors.dart';
+import '../../utils/font_utils.dart';
 
-class ResetPasswordPage extends StatefulWidget {
+class RegisterPage extends StatefulWidget {
   @override
-  _ResetPasswordPageState createState() => _ResetPasswordPageState();
+  _RegisterPageState createState() => _RegisterPageState();
 }
 
-class _ResetPasswordPageState extends State<ResetPasswordPage> {
+class _RegisterPageState extends State<RegisterPage> {
   final _formKey = GlobalKey<FormState>();
   String email = '';
-  String code = '';
-  String newPassword = '';
+  String password = '';
   String confirm = '';
   bool loading = false;
   bool _obscurePassword = true;
@@ -26,23 +26,18 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
     return hasLetter && hasNumber;
   }
 
-  void _showSnack(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+  void _showSnack(String msg) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final args = ModalRoute.of(context)?.settings.arguments;
-    if (args is Map && args['email'] != null) email = args['email'];
-  }
-
-  Future<void> _reset() async {
+  Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => loading = true);
-    final res = await ApiService.resetPassword(email.trim(), code.trim(), newPassword);
+    final res = await AuthApi.register(email.trim(), password);
     setState(() => loading = false);
-    _showSnack(res['body']['message'] ?? '操作完成');
-    if (res['statusCode'] == 200) {
-      Navigator.of(context).pushReplacementNamed('/login');
+    if (res['statusCode'] == 201) {
+      _showSnack(res['body']['message'] ?? '注册成功');
+      Navigator.of(context).pushReplacementNamed('/verify', arguments: {'email': email.trim()});
+    } else {
+      _showSnack(res['body']['message'] ?? '注册失败');
     }
   }
 
@@ -59,8 +54,8 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  SizedBox(height: MediaQuery.of(context).size.height * 0.32), // 下移卡片
-                  // 半透明卡片，居中靠下
+                  SizedBox(height: MediaQuery.of(context).size.height * 0.24), // 下移卡片
+                  // 半透明注册卡片，居中靠下
                   Container(
                     constraints: BoxConstraints(maxWidth: 720),
                     decoration: BoxDecoration(
@@ -87,9 +82,9 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             Text(
-                              '重置密码',
+                              '注册',
                               style: FontUtils.textStyle(
-                                text: '重置密码',
+                                text: '注册',
                                 fontSize: 26,
                                 fontWeight: FontWeight.w700,
                                 color: AppColors.textPrimary,
@@ -97,18 +92,7 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
                               textAlign: TextAlign.center,
                             ),
                             SizedBox(height: 24),
-                            Text(
-                              '输入邮件里的重置验证码与新密码。',
-                              style: FontUtils.textStyle(
-                                text: '输入邮件里的重置验证码与新密码。',
-                                fontSize: 14,
-                                color: AppColors.textSecondary,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                            SizedBox(height: 24),
                             TextFormField(
-                              initialValue: email,
                               decoration: InputDecoration(
                                 labelText: '邮箱',
                                 labelStyle: FontUtils.textStyle(text: '邮箱'),
@@ -127,48 +111,23 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
                                   borderSide: const BorderSide(color: AppColors.borderFocused, width: 2),
                                 ),
                               ),
-                              keyboardType: TextInputType.emailAddress,
                               style: FontUtils.textStyle(
                                 text: email,
                                 color: AppColors.textPrimary,
                               ),
+                              keyboardType: TextInputType.emailAddress,
+                              validator: (v) {
+                                if (v == null || v.trim().isEmpty) return '请输入邮箱';
+                                if (!EmailValidator.validate(v.trim())) return '邮箱格式不正确';
+                                return null;
+                              },
                               onChanged: (v) => email = v,
                             ),
                             SizedBox(height: 16),
                             TextFormField(
                               decoration: InputDecoration(
-                                labelText: '重置验证码',
-                                labelStyle: FontUtils.textStyle(text: '重置验证码'),
-                                filled: true,
-                                fillColor: AppColors.primaryLighter.withOpacity(0.6),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                  borderSide: BorderSide(color: AppColors.border),
-                                ),
-                                enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                  borderSide: BorderSide(color: AppColors.border),
-                                ),
-                                focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                  borderSide: const BorderSide(color: AppColors.borderFocused, width: 2),
-                                ),
-                              ),
-                              style: FontUtils.textStyle(
-                                text: code,
-                                color: AppColors.textPrimary,
-                              ),
-                              onChanged: (v) => code = v,
-                              validator: (v) {
-                                if (v == null || v.isEmpty) return '请输入验证码';
-                                return null;
-                              },
-                            ),
-                            SizedBox(height: 16),
-                            TextFormField(
-                              decoration: InputDecoration(
-                                labelText: '新密码 (至少8位，含字母和数字)',
-                                labelStyle: FontUtils.textStyle(text: '新密码 (至少8位，含字母和数字)'),
+                                labelText: '密码 (至少8位，包含字母和数字)',
+                                labelStyle: FontUtils.textStyle(text: '密码 (至少8位，包含字母和数字)'),
                                 filled: true,
                                 fillColor: AppColors.primaryLighter.withOpacity(0.6),
                                 border: OutlineInputBorder(
@@ -193,12 +152,12 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
                               ),
                               obscureText: _obscurePassword,
                               style: FontUtils.textStyle(
-                                text: newPassword,
+                                text: password,
                                 color: AppColors.textPrimary,
                               ),
-                              onChanged: (v) => newPassword = v,
+                              onChanged: (v) => password = v,
                               validator: (v) {
-                                if (v == null || v.isEmpty) return '请输入新密码';
+                                if (v == null || v.isEmpty) return '请输入密码';
                                 if (!_validPassword(v)) return '密码至少8位并包含字母和数字';
                                 return null;
                               },
@@ -206,8 +165,8 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
                             SizedBox(height: 16),
                             TextFormField(
                               decoration: InputDecoration(
-                                labelText: '确认新密码',
-                                labelStyle: FontUtils.textStyle(text: '确认新密码'),
+                                labelText: '确认密码',
+                                labelStyle: FontUtils.textStyle(text: '确认密码'),
                                 filled: true,
                                 fillColor: AppColors.primaryLighter.withOpacity(0.6),
                                 border: OutlineInputBorder(
@@ -238,7 +197,7 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
                               onChanged: (v) => confirm = v,
                               validator: (v) {
                                 if (v == null || v.isEmpty) return '请确认密码';
-                                if (v != newPassword) return '两次密码不一致';
+                                if (v != password) return '两次密码不一致';
                                 return null;
                               },
                             ),
@@ -250,7 +209,7 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
                                     ),
                                   )
                                 : ElevatedButton(
-                                    onPressed: _reset,
+                                    onPressed: _submit,
                                     style: ElevatedButton.styleFrom(
                                       backgroundColor: AppColors.primary, // 主蓝
                                       foregroundColor: Colors.white, // 白字
@@ -270,16 +229,16 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
                                       ),
                                     ),
                                     child: Text(
-                                      '更新密码',
-                                      style: FontUtils.textStyle(text: '更新密码', fontSize: 16),
+                                      '注册',
+                                      style: FontUtils.textStyle(text: '注册', fontSize: 16),
                                     ),
                                   ),
                             SizedBox(height: 12),
                             TextButton(
                               onPressed: () => Navigator.of(context).pushReplacementNamed('/login'),
                               child: Text(
-                                '返回登录',
-                                style: FontUtils.textStyle(text: '返回登录', color: AppColors.primary),
+                                '已有账号？去登录',
+                                style: FontUtils.textStyle(text: '已有账号？去登录', color: AppColors.primary),
                               ),
                             ),
                           ],

@@ -3,12 +3,13 @@ import 'dart:convert';
 import 'package:email_validator/email_validator.dart';
 import 'package:flutter/material.dart';
 
-import '../services/api_service.dart';
-import '../services/local_storage.dart';
-import '../services/notification_websocket_service.dart';
-import '../widgets/animated_title_background.dart';
-import '../constants/app_colors.dart';
-import '../utils/font_utils.dart';
+import '../../services/api/auth_api.dart';
+import '../../services/api/user_api.dart';
+import '../../services/local_storage.dart';
+import '../../services/notification_websocket_service.dart';
+import '../../widgets/animated_title_background.dart';
+import '../../constants/app_colors.dart';
+import '../../utils/font_utils.dart';
 
 class LoginPage extends StatefulWidget {
   @override
@@ -28,7 +29,7 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _cacheCurrentUserProfile() async {
     try {
-      final resp = await ApiService.getCurrentUserProfile();
+      final resp = await UserApi.getCurrentUserProfile();
       if (resp['statusCode'] == 200) {
         final body = resp['body'] as Map<String, dynamic>;
         await LocalStorage.instance.write('currentUser', jsonEncode(body));
@@ -36,11 +37,9 @@ class _LoginPageState extends State<LoginPage> {
         if (id != null) {
           await LocalStorage.instance.write('userId', id.toString());
         }
-      } else {
-        print('获取当前用户信息失败: ${resp['body']}');
       }
-    } catch (e) {
-      print('获取当前用户信息异常: $e');
+    } catch (_) {
+      // Silently ignore profile fetch errors during login
     }
   }
 
@@ -50,7 +49,7 @@ class _LoginPageState extends State<LoginPage> {
       loading = true;
       errorText = null;
     });
-    final res = await ApiService.login(email.trim(), password);
+    final res = await AuthApi.login(email.trim(), password);
     setState(() {
       loading = false;
     });
@@ -66,8 +65,8 @@ class _LoginPageState extends State<LoginPage> {
       // 登录成功后连接WebSocket接收实时通知
       try {
         await NotificationWebSocketService.instance.connect();
-      } catch (e) {
-        print('WebSocket连接失败: $e');
+      } catch (_) {
+        // WebSocket connection is best-effort
       }
 
       Navigator.of(context).pushReplacementNamed('/home');

@@ -1,3 +1,47 @@
+enum UserRole {
+  USER,
+  ADMIN,
+  SUPER_ADMIN;
+
+  static UserRole fromString(String? s) {
+    if (s == null) return USER;
+    switch (s.toUpperCase()) {
+      case 'ADMIN':
+        return ADMIN;
+      case 'SUPER_ADMIN':
+        return SUPER_ADMIN;
+      default:
+        return USER;
+    }
+  }
+
+  bool get isAdmin => this == ADMIN || this == SUPER_ADMIN;
+
+  /// Backward-compat: enum name is already uppercase.
+  String toUpperCase() => name;
+}
+
+enum UserStatus {
+  NORMAL,
+  MUTED,
+  BANNED;
+
+  static UserStatus fromString(String? s) {
+    if (s == null) return NORMAL;
+    switch (s.toUpperCase()) {
+      case 'MUTED':
+        return MUTED;
+      case 'BANNED':
+        return BANNED;
+      default:
+        return NORMAL;
+    }
+  }
+
+  /// Backward-compat: enum name is already uppercase.
+  String toUpperCase() => name;
+}
+
 int _parseCount(dynamic value) {
   if (value == null) return 0;
   if (value is num) return value.toInt();
@@ -8,8 +52,8 @@ int _parseCount(dynamic value) {
 class UserProfile {
   final String id;
   final String email;
-  final String role;
-  final String status;
+  final UserRole role;
+  final UserStatus status;
   final String? statusMessage;
   final String displayName;
   final String? bio;
@@ -67,8 +111,8 @@ class UserProfile {
       displayName: (rawDisplayName as String?)?.trim().isNotEmpty == true
           ? rawDisplayName as String
           : fallbackName,
-      role: (json['role'] as String?)?.toUpperCase() ?? 'USER',
-      status: (json['status'] as String?)?.toUpperCase() ?? 'NORMAL',
+      role: UserRole.fromString(json['role'] as String?),
+      status: UserStatus.fromString(json['status'] as String?),
       statusMessage: json['statusMessage'] as String?,
       avatar: (json['avatar'] as String?)?.trim().isNotEmpty == true
           ? json['avatar'] as String
@@ -104,8 +148,8 @@ class UserProfile {
   Map<String, dynamic> toJson() => {
     'id': id,
     'email': email,
-    'role': role,
-    'status': status,
+    'role': role.name,
+    'status': status.name,
     if (statusMessage != null) 'statusMessage': statusMessage,
     'displayName': displayName,
     'name': displayName,
@@ -131,8 +175,8 @@ class UserProfile {
     String? avatar,
     String? backgroundImage,
     String? bio,
-    String? role,
-    String? status,
+    UserRole? role,
+    UserStatus? status,
     String? statusMessage,
     List<String>? researchDirections,
     int? followingCount,
