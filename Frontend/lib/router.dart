@@ -25,11 +25,11 @@ Map<String, WidgetBuilder> buildAppRoutes({
 
   return {
     '/': home,
-    '/login': (ctx) => Theme(data: PaperHubTheme.unauthLight, child: LoginPage()),
-    '/register': (ctx) => Theme(data: PaperHubTheme.unauthLight, child: RegisterPage()),
-    '/verify': (ctx) => Theme(data: PaperHubTheme.unauthLight, child: VerifyEmailPage()),
-    '/forgot': (ctx) => Theme(data: PaperHubTheme.unauthLight, child: ForgotPasswordPage()),
-    '/reset': (ctx) => Theme(data: PaperHubTheme.unauthLight, child: ResetPasswordPage()),
+    '/login': (ctx) => Theme(data: PaperHubTheme.unauthLight, child: LoginScreen()),
+    '/register': (ctx) => Theme(data: PaperHubTheme.unauthLight, child: RegisterScreen()),
+    '/verify': (ctx) => Theme(data: PaperHubTheme.unauthLight, child: VerifyEmailScreen()),
+    '/forgot': (ctx) => Theme(data: PaperHubTheme.unauthLight, child: ForgotPasswordScreen()),
+    '/reset': (ctx) => Theme(data: PaperHubTheme.unauthLight, child: ResetPasswordScreen()),
     '/home': home,
     '/me': (ctx) => const ProfilePage(isMainPage: true),
   };

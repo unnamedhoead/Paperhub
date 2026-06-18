@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import '../models/browse_history_item.dart';
 import '../services/api_service.dart';
 import '../utils/local_json_list_store.dart';
@@ -72,7 +73,9 @@ class BrowseHistoryService {
     // 后端记录（忽略失败），本地也维护一份缓存
     try {
       await ApiService.addBrowseHistory(postId: postId, title: title);
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('BrowseHistoryService.addHistory backend ignored: $e');
+    }
     final store = await _store(userId);
     await store.add(
       BrowseHistoryItem(
@@ -89,7 +92,9 @@ class BrowseHistoryService {
     if (userId.isEmpty || postId.isEmpty) return;
     try {
       await ApiService.deleteBrowseHistory(postId);
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('BrowseHistoryService.removeByPostId backend ignored: $e');
+    }
     final store = await _store(userId);
     await store.removeWhere((item) => item.postId == postId);
   }
@@ -99,7 +104,9 @@ class BrowseHistoryService {
     if (userId.isEmpty) return;
     try {
       await ApiService.clearBrowseHistory();
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('BrowseHistoryService.clearHistory backend ignored: $e');
+    }
     final store = await _store(userId);
     await store.clear();
   }

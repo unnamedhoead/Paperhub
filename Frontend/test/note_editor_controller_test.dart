@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart' show XFile;
 import 'package:test/models/post_model.dart';
 import 'package:test/screens/note_editor/note_editor_controller.dart';
 import 'package:test/screens/note_editor/note_editor_results.dart';
+import 'package:test/screens/note_editor/note_publish_service.dart';
 
 /// 构造一个 NoteEditorController（自带文本控制器，便于测试后 dispose）。
 NoteEditorController _makeController({Post? initialPost}) {
@@ -27,6 +28,37 @@ Post _post(Map<String, dynamic> overrides) {
     'author': {'id': 'a1', 'name': 'Alice'},
     ...overrides,
   });
+}
+
+/// 捕获式假发布服务：记录被传入的 [NotePublishInput] 并返回预设结果，
+/// 用于在不触网的前提下验证 [NoteEditorController.publishNote] 的委托与装配。
+class _FakeNotePublishService extends NotePublishService {
+  _FakeNotePublishService(this.result);
+
+  final NoteSubmitResult result;
+  NotePublishInput? captured;
+  int callCount = 0;
+
+  @override
+  Future<NoteSubmitResult> submit(NotePublishInput input) async {
+    callCount++;
+    captured = input;
+    return result;
+  }
+}
+
+NoteEditorController _makeControllerWith(
+  NotePublishService service, {
+  Post? initialPost,
+}) {
+  return NoteEditorController(
+    titleController: TextEditingController(),
+    contentController: TextEditingController(),
+    linkController: TextEditingController(),
+    arxivController: TextEditingController(),
+    initialPost: initialPost,
+    publishService: service,
+  );
 }
 
 void main() {
@@ -337,6 +369,105 @@ void main() {
       const edit = NoteSubmitResult(NoteSubmitKind.editSuccess);
       expect(create.isSuccess, true);
       expect(edit.isSuccess, true);
+    });
+  });
+
+  group('NoteEditorController.publishNote — 委托发布服务 (DI)', () {
+    test('校验失败时返回 validationFailed 且不调用发布服务', () async {
+      final fake =
+          _FakeNotePublishService(const NoteSubmitResult.failure('不应被返回'));
+      final c = _makeControllerWith(fake);
+      addTearDown(c.dispose);
+
+      // 标题为空 -> 第一道校验即失败
+      final r = await c.publishNote();
+
+      expect(r.kind, NoteSubmitKind.validationFailed);
+      expect(r.message, '请输入标题');
+      expect(fake.callCount, 0, reason: '校验失败不应触达发布服务');
+    });
+
+    test('校验失败（缺分区）返回对应文案且不调用发布服务', () async {
+      final fake =
+          _FakeNotePublishService(const NoteSubmitResult.failure('不应被返回'));
+      final c = _makeControllerWith(fake);
+      addTearDown(c.dispose);
+      c.titleController.text = '标题';
+      c.contentController.text = '正文';
+      c.addImage(XFile('dummy.jpg'));
+      // 未选择分区
+
+      final r = await c.publishNote();
+
+      expect(r.kind, NoteSubmitKind.validationFailed);
+      expect(r.message, '请选择一个学科分区');
+      expect(fake.callCount, 0);
+    });
+
+    test('新建校验通过后委托 submit，并原样返回服务结果', () async {
+      const result =
+          NoteSubmitResult(NoteSubmitKind.createSuccess, successMessage: '发布成功');
+      final fake = _FakeNotePublishService(result);
+      final c = _makeControllerWith(fake);
+      addTearDown(c.dispose);
+      c.titleController.text = '  我的标题  ';
+      c.contentController.text = '  正文内容  ';
+      c.selectDiscipline('计算机科学');
+      c.addImage(XFile('dummy.jpg'));
+
+      final r = await c.publishNote();
+
+      expect(fake.callCount, 1);
+      expect(identical(r, result), true, reason: 'publishNote 应直接返回服务结果');
+
+      final input = fake.captured!;
+      expect(input.isEditing, false);
+      expect(input.initialPostId, isNull);
+      expect(input.title, '我的标题', reason: '标题应已 trim');
+      expect(input.content, '正文内容', reason: '正文应已 trim');
+      expect(input.mainDiscipline, '计算机科学');
+      expect(input.images.length, 1);
+    });
+
+    test('statusOverride / customSuccessMessage 透传给 submit', () async {
+      final fake =
+          _FakeNotePublishService(const NoteSubmitResult(NoteSubmitKind.createSuccess));
+      final c = _makeControllerWith(fake);
+      addTearDown(c.dispose);
+      c.titleController.text = 'T';
+      c.contentController.text = 'C';
+      c.selectDiscipline('计算机科学');
+      c.addImage(XFile('dummy.jpg'));
+
+      await c.publishNote(statusOverride: 'DRAFT', customSuccessMessage: '草稿已存');
+
+      expect(fake.captured!.statusOverride, 'DRAFT');
+      expect(fake.captured!.customSuccessMessage, '草稿已存');
+    });
+
+    test('编辑模式校验通过(无需图片)并透传 isEditing / initialPostId', () async {
+      final fake =
+          _FakeNotePublishService(const NoteSubmitResult(NoteSubmitKind.editSuccess));
+      final post = _post({
+        'id': '42',
+        'title': '原标题',
+        'content': '原正文',
+        'mainDiscipline': '物理学',
+      });
+      final c = _makeControllerWith(fake, initialPost: post);
+      addTearDown(c.dispose);
+
+      // 编辑模式构造时已回填 title/content/discipline -> 无图片也能通过校验
+      final r = await c.publishNote();
+
+      expect(fake.callCount, 1);
+      expect(r.kind, NoteSubmitKind.editSuccess);
+
+      final input = fake.captured!;
+      expect(input.isEditing, true);
+      expect(input.initialPostId, post.id);
+      expect(input.title, '原标题');
+      expect(input.mainDiscipline, '物理学');
     });
   });
 }

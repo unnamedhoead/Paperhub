@@ -29,8 +29,8 @@ th{font-weight:600;color:var(--muted);font-size:.8rem;text-transform:uppercase}t
 <p class="subtitle">基线: <code>refactor/wave1-base</code> | 日期: 2026-06-17/18 | 方法: 6 隔离 worktree agent 并行 + Pre-flight + 3 审查修复 agent</p>
 
 <div class="kpi-grid">
-<div class="kpi green"><div class="num">101</div><div class="label">前端测试 (全绿)</div></div>
-<div class="kpi blue"><div class="num">~1.44M</div><div class="label">Agent Token</div></div>
+<div class="kpi green"><div class="num">191</div><div class="label">前端测试 (全绿, 终值)</div></div>
+<div class="kpi blue"><div class="num">~3.59M</div><div class="label">Agent Token (Wave1+2 累计)</div></div>
 <div class="kpi"><div class="num">~90</div><div class="label">变更文件</div></div>
 <div class="kpi"><div class="num">+17.7K</div><div class="label">新增行</div></div>
 <div class="kpi"><div class="num">−16.4K</div><div class="label">删除行</div></div>
@@ -41,7 +41,27 @@ th{font-weight:600;color:var(--muted);font-size:.8rem;text-transform:uppercase}t
 
 <hr style="border:none;border-top:1px solid var(--border);margin:12px 0 24px">
 
-<h2>🤖 Agent 一览</h2>
+<div style="background:#eef7f0;border:1px solid #b6dcc0;border-radius:8px;padding:14px 18px;margin-bottom:24px">
+<h2 style="margin-top:0">✅ Stage4/5 收尾 + 独立共审 (终态)</h2>
+<p style="margin:6px 0">下方"Agent 一览"与"上帝文件拆分效果"为 <b>Wave2 里程碑快照(101 tests)</b>；此后 Opus 接手做了 P2 二轮拆分、G1/G10 彻底重构、错误处理与收尾共审，<b>最终终值见此节</b>。</p>
+<table>
+<tr><th>收尾项</th><th>结果</th></tr>
+<tr><td>post_detail_screen (G1)</td><td>4431 → <b>473 骨架</b> + PostDetailController(+交互/评论子控制器) + CommentTreeOps 纯函数 + 独立 Widget，<b>21 单测</b> <span class="chip chip-g">真拆分</span></td></tr>
+<tr><td>note_editor (G10)</td><td>extension → <b>NoteEditorController extends ChangeNotifier</b> + 3 mixin + 无状态 NotePublishService，<b>33 单测</b>(含 publishNote DI 5 例) <span class="chip chip-g">真 ChangeNotifier</span></td></tr>
+<tr><td>home / search / admin / profile / chat / follow (P2 二轮)</td><td>全部降到 <b>≤300 行</b>(home 1017→230, search→297, …)，逐组件增量 commit <span class="chip chip-g">优秀</span></td></tr>
+<tr><td>D8-D10 错误处理</td><td>16 处 <code>catch(_){}</code> + 1 裸 <code>.catchError</code> → kDebugMode 下 debugPrint，<b>行为不变</b>，0 残留 (<code>78d1ba8</code>)</td></tr>
+<tr><td>N1 命名统一</td><td>auth 文件 *_screen.dart + <b>类名亦改 *Screen</b> (<code>ba04a5c</code>)；import 引用补提交 (<code>86dc856</code>)</td></tr>
+</table>
+<h3 style="margin-bottom:4px">独立共审 (codex 额度耗尽 → 只读 review agent 替代)</h3>
+<ul style="margin-top:4px">
+<li>🔴 <b>已修</b>：N1 rename 的 import 修正<b>只在工作区从未 commit</b> → 已提交 HEAD 实际 11 个 analyze error、不可编译(<b>FM1 复发</b>)。修复 <code>86dc856</code>。<br><b>教训</b>：判断分支健康须查 <code>git show HEAD:</code>(COMMITTED 态)，working-tree 自检会被未提交改动蒙蔽。</li>
+<li>🟡 <b>已修</b>：类名/文件名不一致 → <code>ba04a5c</code>；publishNote 零覆盖 → <code>efa5b64</code> 补 5 例 DI 测试。</li>
+<li>🟢 复核 4 收尾 commit：<b>SHIP ✅</b>，fixes 正确、测试有效非空转；2 个 🟡 均为 pre-existing(message_screen re-export shim / 464 info-warning)，非本轮引入、不阻断。</li>
+</ul>
+<p style="margin:6px 0"><b>最终交付</b>：refactor/wave1-base 前端 <b>191 tests + 0 analyze error(COMMITTED 核实)</b>，后端 235 tests，合计 <b>426</b>。所有上帝文件 G1-G10 真拆分，P0 安全闭环，remaining-tasks 全项 ✅完成或明确决议(🅓/🚫/📋)。</p>
+</div>
+
+<h2>🤖 Agent 一览 <span style="font-weight:400;font-size:13px;color:#888">(Wave2 里程碑快照)</span></h2>
 <table>
 <tr><th>Agent</th><th>Domain</th><th>Tokens</th><th>Commits</th><th>Tests</th><th>关键产出</th></tr>
 <tr><td>Pre-flight</td><td>api_service split</td><td style="text-align:right">99,972</td><td style="text-align:center">1</td><td>5→5</td><td>api_service 114方法→9域API+facade</td></tr>
@@ -135,7 +155,7 @@ th{font-weight:600;color:var(--muted);font-size:.8rem;text-transform:uppercase}t
 
 <hr style="margin:24px 0">
 <p style="text-align:center;color:var(--muted);font-size:.8rem">
-  Paperhub Wave2 Frontend Refactoring Report | 2026-06-18 | <code>refactor/wave1-base</code> | 101 tests green | 0 errors
+  Paperhub Wave2 Frontend Refactoring Report | 2026-06-18 | <code>refactor/wave1-base</code> | 终值 191 tests green | 0 errors (COMMITTED)
 </p>
 </body>
 </html>

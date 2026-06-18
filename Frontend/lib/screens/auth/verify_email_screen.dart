@@ -5,12 +5,12 @@ import '../../utils/font_utils.dart';
 import '../../services/api/auth_api.dart';
 import '../../widgets/animated_title_background.dart';
 
-class VerifyEmailPage extends StatefulWidget {
+class VerifyEmailScreen extends StatefulWidget {
   @override
-  _VerifyEmailPageState createState() => _VerifyEmailPageState();
+  _VerifyEmailScreenState createState() => _VerifyEmailScreenState();
 }
 
-class _VerifyEmailPageState extends State<VerifyEmailPage> {
+class _VerifyEmailScreenState extends State<VerifyEmailScreen> {
   final _formKey = GlobalKey<FormState>();
   String email = '';
   String code = '';

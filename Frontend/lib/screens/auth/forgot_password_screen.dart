@@ -5,12 +5,12 @@ import '../../widgets/animated_title_background.dart';
 import '../../constants/app_colors.dart';
 import '../../utils/font_utils.dart';
 
-class ForgotPasswordPage extends StatefulWidget {
+class ForgotPasswordScreen extends StatefulWidget {
   @override
-  _ForgotPasswordPageState createState() => _ForgotPasswordPageState();
+  _ForgotPasswordScreenState createState() => _ForgotPasswordScreenState();
 }
 
-class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
+class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
   String email = '';
   bool loading = false;

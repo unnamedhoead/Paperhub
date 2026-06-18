@@ -4,6 +4,7 @@
 /// - 顶部图标导航（赞和收藏、新增关注、评论和@）
 /// - 会话列表
 /// - 底部导航栏
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../models/conversation_model.dart';
 import '../../models/notification_model.dart';
@@ -53,7 +54,9 @@ class _MessageScreenState extends State<MessageScreen> {
         });
         UnreadService.instance.updateNotificationUnread(_unreadCount);
       }
-    } catch (_) {}
+    } catch (e) {
+      if (kDebugMode) debugPrint('MessageScreen._loadUnreadCount ignored: $e');
+    }
   }
 
   void _onChatServiceChanged() {
@@ -373,7 +376,9 @@ class _MessageScreenState extends State<MessageScreen> {
         await ApiService.markAllNotificationsAsReadByTypes([
           'POST_LIKE', 'POST_FAVORITE', 'COMMENT_LIKE',
         ]);
-      } catch (_) {}
+      } catch (e) {
+        if (kDebugMode) debugPrint('MessageScreen.markLikesFavorites read ignored: $e');
+      }
       _loadUnreadCount();
     });
   }
@@ -385,7 +390,9 @@ class _MessageScreenState extends State<MessageScreen> {
     ).then((_) async {
       try {
         await ApiService.markAllNotificationsAsReadByTypes(['FOLLOW']);
-      } catch (_) {}
+      } catch (e) {
+        if (kDebugMode) debugPrint('MessageScreen.markFollow read ignored: $e');
+      }
       _loadUnreadCount();
     });
   }
@@ -400,7 +407,9 @@ class _MessageScreenState extends State<MessageScreen> {
         await ApiService.markAllNotificationsAsReadByTypes([
           'COMMENT', 'MENTION',
         ]);
-      } catch (_) {}
+      } catch (e) {
+        if (kDebugMode) debugPrint('MessageScreen.markCommentsMentions read ignored: $e');
+      }
       _loadUnreadCount();
     });
   }

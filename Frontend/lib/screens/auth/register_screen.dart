@@ -5,12 +5,12 @@ import '../../widgets/animated_title_background.dart';
 import '../../constants/app_colors.dart';
 import '../../utils/font_utils.dart';
 
-class RegisterPage extends StatefulWidget {
+class RegisterScreen extends StatefulWidget {
   @override
-  _RegisterPageState createState() => _RegisterPageState();
+  _RegisterScreenState createState() => _RegisterScreenState();
 }
 
-class _RegisterPageState extends State<RegisterPage> {
+class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   String email = '';
   String password = '';

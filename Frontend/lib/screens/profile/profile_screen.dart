@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -140,7 +141,9 @@ class _ProfilePageState extends State<ProfilePage>
       try {
         final post = await ProfileController.getPost(item.postId);
         if (post != null) { posts.add(post); }
-      } catch (_) {}
+      } catch (e) {
+        if (kDebugMode) debugPrint('ProfileScreen.openBrowseHistory load post ignored: $e');
+      }
     }
     if (!mounted || posts.isEmpty) { _showSnack('浏览的帖子都已不存在或加载失败'); return; }
     final rootContext = context;
@@ -209,7 +212,7 @@ class _ProfilePageState extends State<ProfilePage>
       onLogout: () async {
         await ProfileController.logout();
         if (!mounted) return;
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => LoginPage()));
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => LoginScreen()));
       },
     );
   }

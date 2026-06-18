@@ -4,12 +4,12 @@ import '../../widgets/animated_title_background.dart';
 import '../../constants/app_colors.dart';
 import '../../utils/font_utils.dart';
 
-class ResetPasswordPage extends StatefulWidget {
+class ResetPasswordScreen extends StatefulWidget {
   @override
-  _ResetPasswordPageState createState() => _ResetPasswordPageState();
+  _ResetPasswordScreenState createState() => _ResetPasswordScreenState();
 }
 
-class _ResetPasswordPageState extends State<ResetPasswordPage> {
+class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   final _formKey = GlobalKey<FormState>();
   String email = '';
   String code = '';
