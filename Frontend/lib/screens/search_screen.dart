@@ -1,31 +1,23 @@
-/// PaperHub 搜索页
-///
-/// 职责与交互：
-/// - 提供统一的搜索入口（关键词/标签/作者），并记录搜索历史。
-/// - 展示热搜榜，支持一键带入搜索框。
-/// - 管理搜索方式切换（`keyword` | `tag` | `author`）。
-/// - 通过 `SearchHistoryService` 持久化搜索历史（底层可基于 SharedPreferences）。
-///
-/// 设计契约（Contract）：
-/// - `_selectedSearchType` 的取值必须在 `_searchTypeOptions` 的 key 集合中。
-/// - 搜索提交时会去除首尾空白；若为空则不提交。
-/// - 历史记录项包括：id（唯一）、keyword、searchType、timestamp（毫秒）。
-/// - UI 仅做演示：提交后 Toast 提示；后续可跳转搜索结果页。
-///
-/// 性能与体验：
-/// - 首次进入加载历史（带 `_isLoading` 占位）。
-/// - 热搜与历史均为轻量列表，使用 `SliverToBoxAdapter` 组成滚动区域。
-///
+// PaperHub 搜索页。
+//
+// 骨架职责：协调状态（搜索类型 / 历史 / 热搜）+ 组合各 search/ 子 Widget。
+// - 搜索入口、搜索方式选择、历史区、热搜区分别由
+//   SearchBarHeader / SearchTypeSelector / SearchHistorySection / HotSearchSection 渲染。
+// - 历史通过 SearchHistoryService 持久化；热搜通过 ApiService.getHotSearches 拉取。
+// - 提交搜索 / 点击历史 / 点击热搜统一走 _recordAndNavigate（写历史 + 跳转结果页）。
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../models/search_model.dart';
 import '../services/search_history_service.dart';
 import '../services/api_service.dart';
+import 'search/hot_search_section.dart';
+import 'search/search_bar.dart';
+import 'search/search_history_section.dart';
+import 'search/search_type_selector.dart';
 import 'search_results_screen.dart';
 
 /// 搜索页面（Stateful）
 class SearchScreen extends StatefulWidget {
-  const SearchScreen({Key? key}) : super(key: key);
+  const SearchScreen({super.key});
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -81,10 +73,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _loadHotSearches();
   }
 
-  /// 加载本地搜索历史
-  /// - 设置 `_isLoading` 为 true 以展示加载占位
-  /// - 调用 `SearchHistoryService.getSearchHistory()` 获取历史
-  /// - 结束后恢复 `_isLoading=false` 并渲染历史列表
+  /// 加载本地搜索历史（带 `_isLoading` 占位，完成后渲染列表）。
   Future<void> _loadSearchHistory() async {
     setState(() {
       _isLoading = true;
@@ -98,10 +87,7 @@ class _SearchScreenState extends State<SearchScreen> {
     });
   }
 
-  /// 加载热搜榜单
-  /// - 设置 `_isLoadingHotSearches` 为 true 以展示加载占位
-  /// - 调用 `ApiService.getHotSearches()` 获取热搜
-  /// - 成功后更新热搜列表，失败时显示错误信息
+  /// 加载热搜榜单（带 `_isLoadingHotSearches` 占位；失败写 `_hotSearchesError`）。
   Future<void> _loadHotSearches() async {
     setState(() {
       _isLoadingHotSearches = true;
@@ -158,113 +144,61 @@ class _SearchScreenState extends State<SearchScreen> {
     });
   }
 
-  /// 提交搜索
-  /// 合约：
-  /// - 若输入为空（去除首尾空白）则忽略。
-  /// - 构造 `SearchHistoryItem` 并调用服务层写入，再刷新历史列表。
-  /// - 跳转到搜索结果页面。
-  void _onSearchSubmitted(String value) {
-    if (value.trim().isEmpty) return;
+  /// 写入一次搜索历史并跳转到结果页（提交/点击历史/点击热搜共用）。
+  /// keyword 已去空白且非空；服务层负责去重与计数更新。
+  void _recordAndNavigate(String keyword, String searchType) {
+    SearchHistoryService.addSearchHistory(
+      SearchHistoryItem(
+        id: SearchHistoryService.generateId(),
+        keyword: keyword,
+        searchType: searchType,
+        timestamp: DateTime.now(),
+      ),
+    ).then((_) => _loadSearchHistory()); // 重新加载历史记录
 
-    // 添加到搜索历史
-    final newHistory = SearchHistoryItem(
-      id: SearchHistoryService.generateId(),
-      keyword: value.trim(),
-      searchType: _selectedSearchType,
-      timestamp: DateTime.now(),
-    );
-
-    SearchHistoryService.addSearchHistory(newHistory).then((_) {
-      _loadSearchHistory(); // 重新加载历史记录
-    });
-
-    // 跳转到搜索结果页面
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => SearchResultsScreen(
-          query: value.trim(),
-          searchType: _selectedSearchType,
+          query: keyword,
+          searchType: searchType,
         ),
       ),
     );
   }
 
-  /// 点击历史记录项：
-  /// - 将其 keyword 与 searchType 回填到输入框与当前搜索类型
-  /// - 主动请求输入框获取焦点，便于用户直接编辑/提交
-  /// - 保存到搜索历史（作为一次新的搜索）
-  /// - 直接跳转到搜索结果页面
+  /// 提交搜索：去空白后非空则写历史并跳转，使用当前搜索类型。
+  void _onSearchSubmitted(String value) {
+    final keyword = value.trim();
+    if (keyword.isEmpty) return;
+    _recordAndNavigate(keyword, _selectedSearchType);
+  }
+
+  /// 点击历史记录项：回填关键词与其搜索类型、聚焦输入框，再写历史并跳转。
   void _onHistoryItemTap(SearchHistoryItem item) {
-    final trimmedKeyword = item.keyword.trim();
-    if (trimmedKeyword.isEmpty) return; // 如果关键词为空，不处理
+    final keyword = item.keyword.trim();
+    if (keyword.isEmpty) return;
 
     setState(() {
-      _searchController.text = trimmedKeyword;
+      _searchController.text = keyword;
       _selectedSearchType = item.searchType;
     });
     _searchFocusNode.requestFocus();
 
-    // 添加到搜索历史（作为一次新的搜索，服务层会处理去重和计数更新）
-    final newHistory = SearchHistoryItem(
-      id: SearchHistoryService.generateId(),
-      keyword: trimmedKeyword,
-      searchType: item.searchType,
-      timestamp: DateTime.now(),
-    );
-
-    SearchHistoryService.addSearchHistory(newHistory).then((_) {
-      _loadSearchHistory(); // 重新加载历史记录
-    });
-
-    // 直接跳转到搜索结果页面
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => SearchResultsScreen(
-          query: trimmedKeyword,
-          searchType: item.searchType,
-        ),
-      ),
-    );
+    _recordAndNavigate(keyword, item.searchType);
   }
 
-  /// 点击热搜项：
-  /// - 回填标题到输入框（不改变当前搜索类型）
-  /// - 保存到搜索历史（使用当前搜索类型）
-  /// - 直接跳转到搜索结果页面（使用当前搜索类型）
+  /// 点击热搜项：回填标题（保持当前搜索类型）、聚焦输入框，再写历史并跳转。
   void _onHotSearchTap(HotSearchItem item) {
-    final trimmedKeyword = item.title.trim();
-    if (trimmedKeyword.isEmpty) return; // 如果关键词为空，不处理
+    final keyword = item.title.trim();
+    if (keyword.isEmpty) return;
 
     setState(() {
-      _searchController.text = trimmedKeyword;
-      // 不设置_selectedSearchType，保持用户当前选择的搜索类型
+      _searchController.text = keyword; // 不改变 _selectedSearchType
     });
     _searchFocusNode.requestFocus();
 
-    // 添加到搜索历史（使用当前搜索类型，而不是热搜条目记录的搜索类型）
-    final newHistory = SearchHistoryItem(
-      id: SearchHistoryService.generateId(),
-      keyword: trimmedKeyword,
-      searchType: _selectedSearchType, // 使用当前搜索类型
-      timestamp: DateTime.now(),
-    );
-
-    SearchHistoryService.addSearchHistory(newHistory).then((_) {
-      _loadSearchHistory(); // 重新加载历史记录
-    });
-
-    // 直接跳转到搜索结果页面（使用当前搜索类型）
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => SearchResultsScreen(
-          query: trimmedKeyword,
-          searchType: _selectedSearchType, // 使用当前搜索类型
-        ),
-      ),
-    );
+    _recordAndNavigate(keyword, _selectedSearchType);
   }
 
   /// 清空全部历史记录
@@ -287,455 +221,68 @@ class _SearchScreenState extends State<SearchScreen> {
   ///   2) 历史记录区（加载中/空/列表）
   ///   3) 热搜榜区（列表）
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SafeArea(
         child: Column(
           children: [
             // 顶部搜索栏
-            _buildSearchHeader(scheme),
+            SearchBarHeader(
+              controller: _searchController,
+              focusNode: _searchFocusNode,
+              hintText: _searchHints[_selectedSearchType],
+              onSubmitted: _onSearchSubmitted,
+              onChanged: (_) => setState(() {}),
+              onClear: () => setState(() {}),
+              onBack: () => Navigator.pop(context),
+            ),
 
             // 内容区域
             Expanded(
               child: CustomScrollView(
                 slivers: [
                   // 搜索方式选择器
-                  _buildSearchTypeSelector(),
+                  SearchTypeSelector(
+                    options: _searchTypeOptions,
+                    selectedType: _selectedSearchType,
+                    isExpanded: _isSearchTypeExpanded,
+                    onExpansionChanged: (expanded) {
+                      setState(() {
+                        _isSearchTypeExpanded = expanded;
+                      });
+                    },
+                    onTypeChanged: _onSearchTypeChanged,
+                  ),
 
                   // 历史记录区域
-                  _buildHistorySection(),
+                  SearchHistorySection(
+                    history: _searchHistory,
+                    isLoading: _isLoading,
+                    isExpanded: _isHistoryExpanded,
+                    searchTypeLabels: _searchTypeOptions,
+                    onClearHistory: _onClearHistory,
+                    onToggleExpand: () {
+                      setState(() {
+                        _isHistoryExpanded = !_isHistoryExpanded;
+                      });
+                    },
+                    onItemTap: _onHistoryItemTap,
+                    onDeleteItem: _onDeleteHistoryItem,
+                  ),
 
                   // 热搜榜区域
-                  _buildHotSearchSection(),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 顶部搜索栏：
-  /// - 返回按钮：`Navigator.pop`
-  /// - 输入框：根据 `_selectedSearchType` 切换 hint；右侧清空/搜索图标动态切换
-  /// - “搜索”按钮：仅在输入非空时显示
-  Widget _buildSearchHeader(ColorScheme scheme) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: scheme.surface,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 3,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          // 返回按钮
-          IconButton(
-            icon: Icon(Icons.arrow_back, color: scheme.onSurface),
-            onPressed: () => Navigator.pop(context),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
-          ),
-          const SizedBox(width: 8),
-
-          // 搜索输入框
-          Expanded(
-            child: Container(
-              height: 40,
-              decoration: BoxDecoration(
-                color: scheme.surfaceVariant,
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: TextField(
-                controller: _searchController,
-                focusNode: _searchFocusNode,
-                decoration: InputDecoration(
-                  hintText: _searchHints[_selectedSearchType],
-                  hintStyle: TextStyle(color: scheme.onSurface.withOpacity(0.6)),
-                  border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                  suffixIcon: _searchController.text.isNotEmpty
-                      ? IconButton(
-                          icon: Icon(Icons.clear, size: 20, color: scheme.onSurface),
-                          onPressed: () {
-                            _searchController.clear();
-                            setState(() {});
-                          },
-                        )
-                      : Icon(Icons.search, color: scheme.onSurface.withOpacity(0.6), size: 20),
-                ),
-                style: TextStyle(color: scheme.onSurface),
-                onChanged: (value) => setState(() {}),
-                onSubmitted: _onSearchSubmitted,
-              ),
-            ),
-          ),
-
-          // 搜索按钮
-          if (_searchController.text.isNotEmpty)
-            TextButton(
-              onPressed: () => _onSearchSubmitted(_searchController.text),
-              child: Text('搜索', style: TextStyle(color: scheme.primary)),
-            ),
-        ],
-      ),
-    );
-  }
-
-  /// 搜索方式选择器（Sliver）：
-  /// - 使用 `ExpansionTile` 展示三个选项（单选 Radio）
-  /// - 展开状态同步到 `_isSearchTypeExpanded`，以控制箭头图标
-  Widget _buildSearchTypeSelector() {
-    final scheme = Theme.of(context).colorScheme;
-    return SliverToBoxAdapter(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          border: Border(bottom: BorderSide(color: scheme.outline.withOpacity(0.12))),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '搜索方式',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: scheme.onSurface.withOpacity(0.7),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              decoration: BoxDecoration(
-                color: scheme.surfaceVariant,
-                border: Border.all(color: scheme.outline.withOpacity(0.3)),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: ExpansionTile(
-                title: Text(
-                  _searchTypeOptions[_selectedSearchType]!,
-                  style: TextStyle(color: scheme.onSurface),
-                ),
-                trailing: Icon(
-                  _isSearchTypeExpanded ? Icons.expand_less : Icons.expand_more,
-                  color: scheme.onSurface.withOpacity(0.7),
-                ),
-                initiallyExpanded: false,
-                onExpansionChanged: (expanded) {
-                  setState(() {
-                    _isSearchTypeExpanded = expanded;
-                  });
-                },
-                children: _searchTypeOptions.entries.map((entry) {
-                  return ListTile(
-                    title: Text(entry.value, style: TextStyle(color: scheme.onSurface)),
-                    leading: Radio<String>(
-                      value: entry.key,
-                      groupValue: _selectedSearchType,
-                      onChanged: (value) => _onSearchTypeChanged(value!),
-                      activeColor: scheme.primary,
-                    ),
-                    onTap: () => _onSearchTypeChanged(entry.key),
-                  );
-                }).toList(),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 搜索历史区域（Sliver）：
-  /// - 加载中：圆形进度条
-  /// - 空状态：文案占位
-  /// - 否则：列表项 + “清空历史”按钮
-  Widget _buildHistorySection() {
-    final scheme = Theme.of(context).colorScheme;
-    return SliverToBoxAdapter(
-      child: Container(
-        margin: const EdgeInsets.only(top: 16),
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 标题栏
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    '搜索历史',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  HotSearchSection(
+                    hotSearches: _hotSearches,
+                    isLoading: _isLoadingHotSearches,
+                    error: _hotSearchesError,
+                    onRefresh: _loadHotSearches,
+                    onItemTap: _onHotSearchTap,
                   ),
-                  // 清空历史按钮
-                  if (_searchHistory.isNotEmpty)
-                    TextButton(
-                      onPressed: _onClearHistory,
-                      child: const Text(
-                        '清空历史',
-                        style: TextStyle(fontSize: 14, color: Colors.grey),
-                      ),
-                    ),
                 ],
               ),
             ),
-
-            // 历史记录列表
-            if (_isLoading)
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (_searchHistory.isEmpty)
-              _buildEmptyState('暂无搜索历史')
-            else
-              Column(
-                children: [
-                  ..._buildHistoryItemList(),
-                  if (_searchHistory.length > 5)
-                    // 展开/收起按钮
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Center(
-                        child: TextButton(
-                          onPressed: () {
-                            setState(() {
-                              _isHistoryExpanded = !_isHistoryExpanded;
-                            });
-                          },
-                          child: Text(
-                            _isHistoryExpanded ? '收起' : '展开',
-                            style: const TextStyle(fontSize: 14, color: Colors.grey),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
           ],
         ),
-      ),
-    );
-  }
-
-  /// 构建历史记录项列表（根据展开状态决定显示数量）
-  List<Widget> _buildHistoryItemList() {
-    final displayCount = _isHistoryExpanded || _searchHistory.length <= 5
-        ? _searchHistory.length
-        : 5;
-    return _searchHistory
-        .take(displayCount)
-        .map((item) => _buildHistoryItem(item))
-        .toList();
-  }
-
-  /// 单条历史记录项
-  /// - 左侧历史图标；标题为关键词；副标题为搜索方式文案
-  /// - 右侧删除按钮（单条删除）
-  Widget _buildHistoryItem(SearchHistoryItem item) {
-    return ListTile(
-      leading: const Icon(Icons.history, color: Colors.grey, size: 20),
-      title: Text(item.keyword),
-      subtitle: Text(
-        '搜索方式: ${_searchTypeOptions[item.searchType]}',
-        style: const TextStyle(fontSize: 12, color: Colors.grey),
-      ),
-      trailing: IconButton(
-        icon: const Icon(Icons.close, size: 18, color: Colors.grey),
-        onPressed: () => _onDeleteHistoryItem(item.id),
-      ),
-      onTap: () => _onHistoryItemTap(item),
-    );
-  }
-
-  /// 热搜榜区域（Sliver）：
-  /// - 从后端API获取实时热搜数据，失败时显示错误信息并提供重试
-  /// - 每项展示：排名、标题、标签徽标（新/热）、热度文案
-  Widget _buildHotSearchSection() {
-    final scheme = Theme.of(context).colorScheme;
-    return SliverToBoxAdapter(
-      child: Container(
-        margin: const EdgeInsets.only(top: 16, bottom: 16),
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 标题栏
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    '热搜榜',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: scheme.onSurface,
-                    ),
-                  ),
-                  // 刷新按钮（非加载状态时显示）
-                  if (!_isLoadingHotSearches && _hotSearchesError == null)
-                    IconButton(
-                      icon: Icon(Icons.refresh, size: 20, color: scheme.onSurface),
-                      onPressed: _loadHotSearches,
-                      tooltip: '刷新热搜榜',
-                    ),
-                ],
-              ),
-            ),
-
-            // 加载状态
-            if (_isLoadingHotSearches)
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            // 错误状态
-            else if (_hotSearchesError != null)
-              _buildErrorState(_hotSearchesError!)
-            // 空状态（无错误但数据为空）
-            else if (_hotSearches.isEmpty)
-              _buildEmptyState('暂无热搜数据')
-            // 热搜列表
-            else
-              ..._hotSearches
-                  .map((item) => _buildHotSearchItem(item))
-                  .toList(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 单条热搜项
-  /// - 前三名使用红色强化排名
-  /// - 若存在 tag：渲染带边框的小徽标（新/热）
-  /// - 右侧展示 `formattedHeat`（热度格式化文案）
-  Widget _buildHotSearchItem(HotSearchItem item) {
-    final scheme = Theme.of(context).colorScheme;
-    Color rankColor = scheme.onSurfaceVariant;
-    if (item.rank <= 3) {
-      rankColor = const Color(0xFFFF2D55); // 前3名用红色
-    }
-
-    return ListTile(
-      leading: Container(
-        width: 24,
-        alignment: Alignment.center,
-        child: Text(
-          item.rank.toString(),
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-            color: rankColor,
-          ),
-        ),
-      ),
-      title: Row(
-        children: [
-          Expanded(
-            child: Text(
-              item.title,
-              style: TextStyle(
-                fontSize: 14,
-                color: scheme.onSurface,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          if (item.tag != null) ...[
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-              decoration: BoxDecoration(
-                color: item.tag == '热' ? Colors.red[50] : Colors.orange[50],
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(
-                  color: item.tag == '热' ? Colors.red : Colors.orange,
-                  width: 0.5,
-                ),
-              ),
-              child: Text(
-                item.tag!,
-                style: TextStyle(
-                  fontSize: 10,
-                  color: item.tag == '热' ? Colors.red : Colors.orange,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-      trailing: Text(
-        item.formattedHeat,
-        style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
-      ),
-      onTap: () => _onHotSearchTap(item),
-    );
-  }
-
-  /// 空状态占位
-  Widget _buildEmptyState(String message) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        children: [
-          Icon(Icons.search_off, size: 48, color: scheme.onSurfaceVariant),
-          const SizedBox(height: 16),
-          Text(
-            message,
-            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 14),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 错误状态占位
-  Widget _buildErrorState(String errorMessage) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        children: [
-          Icon(Icons.error_outline, size: 48, color: Colors.orange[400]),
-          const SizedBox(height: 16),
-          Text(
-            errorMessage,
-            style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 14),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: _loadHotSearches,
-            icon: const Icon(Icons.refresh, size: 16),
-            label: const Text('重新加载'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: scheme.primary,
-              foregroundColor: scheme.onPrimary,
-              elevation: 0,
-            ),
-          ),
-        ],
       ),
     );
   }

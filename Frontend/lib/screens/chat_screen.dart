@@ -6,17 +6,22 @@
 /// - 通过 ChatWebSocketService 实时接收新消息
 /// - 消息状态指示
 /// - 时间分组显示
+///
+/// 视图拆分为 screens/chat/ 下的 ChatAppBar / ChatMessageList /
+/// ChatInputArea 三个独立 Widget；本 State 只保留会话初始化、滚动分页、
+/// WebSocket 订阅与消息发送等控制逻辑。
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import '../models/conversation_model.dart';
 import '../models/message_model.dart';
 import '../services/chat_service.dart';
 import '../services/chat_websocket_service.dart';
 import '../services/api_service.dart';
 import '../services/local_storage.dart';
-import '../widgets/message_bubble.dart';
-import '../widgets/chat_input.dart';
+import 'chat/chat_app_bar.dart';
+import 'chat/chat_input_area.dart';
+import 'chat/chat_message_list.dart';
+import 'chat/chat_scroll_manager.dart';
 import 'profile_screen.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -38,22 +43,31 @@ class _ChatScreenState extends State<ChatScreen> {
   final ChatWebSocketService _wsService = ChatWebSocketService();
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _textController = TextEditingController();
+  late final ChatScrollManager _scrollManager;
 
   bool _loadingConversation = false;
   Conversation? _loadedConversation;
   bool _initialLoadComplete = false;
   int _previousMessageCount = 0;
   String? _currentUserId;
-  bool _userHasScrolled = false;
 
   StreamSubscription<Message>? _wsSubscription;
+
+  /// 当前会话（直接传入或按 id 查到的）。
+  Conversation? get _conversation => widget.conversation ?? _loadedConversation;
 
   @override
   void initState() {
     super.initState();
     _currentUserId = LocalStorage.instance.read('userId');
+    _scrollManager = ChatScrollManager(
+      scrollController: _scrollController,
+      chatService: _chatService,
+      conversationId: () => _conversation?.id,
+      isMounted: () => mounted,
+    );
     _initializeConversation();
-    _scrollController.addListener(_scrollListener);
+    _scrollController.addListener(_scrollManager.onScroll);
     _chatService.addListener(_onChatServiceChanged);
   }
 
@@ -62,7 +76,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _wsSubscription?.cancel();
     _wsService.disconnect();
     _chatService.removeListener(_onChatServiceChanged);
-    _scrollController.removeListener(_scrollListener);
+    _scrollController.removeListener(_scrollManager.onScroll);
     _scrollController.dispose();
     _textController.dispose();
     super.dispose();
@@ -71,20 +85,14 @@ class _ChatScreenState extends State<ChatScreen> {
   void _onChatServiceChanged() {
     if (mounted && !_chatService.isLoadingMessages) {
       final currentCount = _chatService.messages.length;
-      final shouldScroll =
-          currentCount > _previousMessageCount && _isNearBottom();
+      final shouldScroll = currentCount > _previousMessageCount &&
+          _scrollManager.isNearBottom();
       setState(() {});
       if (shouldScroll) {
-        _scrollToBottom(force: true);
+        _scrollManager.scrollToBottom(force: true);
       }
       _previousMessageCount = currentCount;
     }
-  }
-
-  bool _isNearBottom() {
-    if (!_scrollController.hasClients) return true;
-    final position = _scrollController.position;
-    return position.maxScrollExtent - position.pixels < 100;
   }
 
   Future<void> _initializeConversation() async {
@@ -146,7 +154,7 @@ class _ChatScreenState extends State<ChatScreen> {
       _previousMessageCount = _chatService.messages.length;
     });
 
-    _scrollToBottom(force: false);
+    _scrollManager.scrollToBottom(force: false);
     _startWebSocketSubscription(conversation.id);
   }
 
@@ -163,65 +171,14 @@ class _ChatScreenState extends State<ChatScreen> {
       if (!exists) {
         _chatService.messages.add(message);
         setState(() {});
-        _scrollToBottom(force: true);
+        _scrollManager.scrollToBottom(force: true);
       }
     });
   }
 
-  Future<void> _loadMoreMessagesIfNeeded() async {
-    final conversation = widget.conversation ?? _loadedConversation;
-    if (conversation == null) return;
-
-    if (_chatService.hasMoreMessages && !_chatService.isLoadingMoreMessages) {
-      double distanceFromBottom = 0;
-      if (_scrollController.hasClients) {
-        final maxExtent = _scrollController.position.maxScrollExtent;
-        distanceFromBottom = maxExtent - _scrollController.offset;
-      }
-
-      final int beforeMessageCount = _chatService.messages.length;
-      await _chatService.loadMessages(conversation.id,
-          page: _chatService.currentPage + 1);
-
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_scrollController.hasClients) return;
-        final int afterMessageCount = _chatService.messages.length;
-        final int loadedMessageCount =
-            afterMessageCount - beforeMessageCount;
-        if (loadedMessageCount > 0) {
-          final newMaxExtent =
-              _scrollController.position.maxScrollExtent;
-          final double newOffset = newMaxExtent - distanceFromBottom;
-          _scrollController
-              .jumpTo(newOffset.clamp(0.0, newMaxExtent));
-        }
-      });
-    }
-  }
-
-  void _scrollListener() {
-    if (_scrollController.hasClients &&
-        _scrollController.position.userScrollDirection !=
-            ScrollDirection.idle) {
-      _userHasScrolled = true;
-    }
-
-    final conversation = widget.conversation ?? _loadedConversation;
-    if (conversation != null &&
-        _scrollController.offset >=
-            _scrollController.position.maxScrollExtent - 100) {
-      _chatService.markAsRead(conversation.id);
-    }
-
-    if (_scrollController.hasClients &&
-        _scrollController.offset <= 100) {
-      _loadMoreMessagesIfNeeded();
-    }
-  }
-
   void _onSendMessage(String content) {
     if (content.trim().isEmpty) return;
-    final conversation = widget.conversation ?? _loadedConversation;
+    final conversation = _conversation;
     if (conversation == null) return;
 
     _chatService.sendMessage(
@@ -230,12 +187,12 @@ class _ChatScreenState extends State<ChatScreen> {
     );
     _textController.clear();
     _previousMessageCount = _chatService.messages.length;
-    _scrollToBottom(force: true);
+    _scrollManager.scrollToBottom(force: true);
   }
 
   void _onSendMedia(List<String> mediaUrls, String messageType,
       String fileName, int fileSize) {
-    final conversation = widget.conversation ?? _loadedConversation;
+    final conversation = _conversation;
     if (conversation == null) return;
 
     MessageType type = MessageType.image;
@@ -257,7 +214,7 @@ class _ChatScreenState extends State<ChatScreen> {
       fileSize: fileSize,
     );
     _previousMessageCount = _chatService.messages.length;
-    _scrollToBottom(force: true);
+    _scrollManager.scrollToBottom(force: true);
   }
 
   Future<void> _preloadMedia() async {
@@ -280,75 +237,11 @@ class _ChatScreenState extends State<ChatScreen> {
     }
 
     if (preloadFutures.isNotEmpty) {
-      await Future.wait(preloadFutures.map((future) =>
-          future.timeout(const Duration(seconds: 5),
-              onTimeout: () {
-                debugPrint('图片预加载超时');
-                return;
-              })));
-    }
-  }
-
-  void _scrollToBottom({bool force = false}) {
-    if (!mounted) return;
-    if (!force && _userHasScrolled) return;
-
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted || !_scrollController.hasClients) return;
-
-      final hasVoiceMessages = _chatService.messages
-          .any((msg) => msg.type == MessageType.voice);
-      final int maxRetries = hasVoiceMessages ? 5 : 3;
-
-      double previousMaxExtent = 0;
-      int stableFrameCount = 0;
-
-      for (int retry = 0; retry < maxRetries; retry++) {
-        await Future.delayed(Duration(
-            milliseconds:
-                hasVoiceMessages ? 150 * (retry + 1) : 100 * (retry + 1)));
-
-        if (!mounted || !_scrollController.hasClients) return;
-
-        final maxExtent = _scrollController.position.maxScrollExtent;
-        if (maxExtent > 0) {
-          _scrollController.jumpTo(maxExtent);
-        }
-
-        if (_scrollController.hasClients) {
-          final currentMaxExtent =
-              _scrollController.position.maxScrollExtent;
-          if ((currentMaxExtent - previousMaxExtent).abs() < 1.0) {
-            stableFrameCount++;
-          } else {
-            stableFrameCount = 0;
-          }
-          previousMaxExtent = currentMaxExtent;
-
-          final position = _scrollController.position;
-          final isAtBottom =
-              position.maxScrollExtent - position.pixels <= 10;
-          if (isAtBottom && stableFrameCount >= 2) {
-            break;
-          }
-        }
-      }
-    });
-  }
-
-  String _formatDateHeader(DateTime dateTime) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final messageDate =
-        DateTime(dateTime.year, dateTime.month, dateTime.day);
-    final difference = messageDate.difference(today).inDays;
-    switch (difference) {
-      case 0:
-        return '今天';
-      case -1:
-        return '昨天';
-      default:
-        return '${dateTime.month}月${dateTime.day}日';
+      await Future.wait(preloadFutures.map((future) => future.timeout(
+          const Duration(seconds: 5), onTimeout: () {
+        debugPrint('图片预加载超时');
+        return;
+      })));
     }
   }
 
@@ -357,254 +250,38 @@ class _ChatScreenState extends State<ChatScreen> {
       Navigator.push(context,
           MaterialPageRoute(builder: (_) => const ProfilePage()));
     } else {
-      Navigator.push(
-          context,
-          MaterialPageRoute(
-              builder: (_) => ProfilePage(userId: userId)));
+      Navigator.push(context,
+          MaterialPageRoute(builder: (_) => ProfilePage(userId: userId)));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      appBar: _buildAppBar(scheme),
+      appBar: ChatAppBar(
+        conversation: _conversation,
+        onBack: () => Navigator.pop(context),
+        onTitleTap: _navigateToUserProfile,
+      ),
       body: Column(children: [
         Expanded(
-          child: _loadingConversation
-              ? _buildLoadingView()
-              : _buildMessageList(),
-        ),
-        _buildInputArea(),
-      ]),
-    );
-  }
-
-  PreferredSizeWidget _buildAppBar(ColorScheme scheme) {
-    final conversation = widget.conversation ?? _loadedConversation;
-
-    if (conversation == null) {
-      return AppBar(
-        backgroundColor: scheme.surface,
-        elevation: 0,
-        leading: IconButton(
-            icon: Icon(Icons.arrow_back, color: scheme.onSurface),
-            onPressed: () => Navigator.pop(context)),
-        title: Text('加载中...',
-            style: TextStyle(
-                color: scheme.onSurface,
-                fontSize: 16,
-                fontWeight: FontWeight.w600)),
-      );
-    }
-
-    return AppBar(
-      backgroundColor: scheme.surface,
-      elevation: 0,
-      leading: IconButton(
-          icon: Icon(Icons.arrow_back, color: scheme.onSurface),
-          onPressed: () => Navigator.pop(context)),
-      title: GestureDetector(
-        onTap: () {
-          if (conversation.type == ConversationType.private &&
-              conversation.participants.isNotEmpty) {
-            final otherUser = conversation.participants.firstWhere(
-                (p) => !p.isMe,
-                orElse: () => conversation.participants.first);
-            _navigateToUserProfile(otherUser.id);
-          }
-        },
-        child: Row(children: [
-          _buildAppBarAvatar(conversation),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(conversation.displayName,
-                    style: TextStyle(
-                        color: scheme.onSurface,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600)),
-                if (conversation.type == ConversationType.group)
-                  Text('${conversation.participants.length} 位成员',
-                      style: TextStyle(
-                          color: scheme.onSurfaceVariant,
-                          fontSize: 12)),
-              ],
-            ),
-          ),
-        ]),
-      ),
-    );
-  }
-
-  Widget _buildAppBarAvatar(Conversation conversation) {
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(9),
-          color: Colors.grey[200]),
-      child: conversation.displayAvatar != null
-          ? ClipRRect(
-              borderRadius: BorderRadius.circular(9),
-              child: Image.network(conversation.displayAvatar!,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) =>
-                      _buildDefaultAvatar(conversation)),
-            )
-          : _buildDefaultAvatar(conversation),
-    );
-  }
-
-  Widget _buildDefaultAvatar(Conversation conversation) {
-    final name = conversation.displayName;
-    final firstChar = name.isNotEmpty ? name[0] : '?';
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(9),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF1976D2), Color(0xFF42A5F5)],
-        ),
-      ),
-      child: Center(
-        child: Text(firstChar,
-            style: const TextStyle(
-                color: Colors.white,
-                fontSize: 14,
-                fontWeight: FontWeight.bold)),
-      ),
-    );
-  }
-
-  Widget _buildMessageList() {
-    if (!_initialLoadComplete) return _buildLoadingView();
-
-    final messages = _chatService.messages;
-    if (messages.isEmpty) return _buildEmptyView();
-
-    return Column(children: [
-      if (_chatService.isLoadingMoreMessages)
-        Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: const Center(
-            child: SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                      Color(0xFF1976D2))),
-            ),
+          child: ChatMessageList(
+            messages: _chatService.messages,
+            scrollController: _scrollController,
+            // 会话加载中时复用列表的加载视图，保持原行为一致。
+            initialLoadComplete:
+                _loadingConversation ? false : _initialLoadComplete,
+            isLoadingMoreMessages: _chatService.isLoadingMoreMessages,
+            onAvatarTap: _navigateToUserProfile,
           ),
         ),
-      Expanded(
-        child: ListView.builder(
-          controller: _scrollController,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          itemCount: messages.length,
-          itemBuilder: (context, index) {
-            final message = messages[index];
-            final showDateHeader = index == 0 ||
-                !_isSameDay(
-                    messages[index - 1].createdAt, message.createdAt);
-            return Column(children: [
-              if (showDateHeader) _buildDateHeader(message.createdAt),
-              MessageBubble(
-                message: message,
-                showAvatar: true,
-                onAvatarTap: () =>
-                    _navigateToUserProfile(message.senderId),
-              ),
-            ]);
-          },
+        ChatInputArea(
+          controller: _textController,
+          onSend: _onSendMessage,
+          onSendMedia: _onSendMedia,
         ),
-      ),
-    ]);
-  }
-
-  Widget _buildDateHeader(DateTime date) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 16),
-      child: Center(
-        child: Container(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          decoration: BoxDecoration(
-              color: scheme.surfaceVariant,
-              borderRadius: BorderRadius.circular(12)),
-          child: Text(_formatDateHeader(date),
-              style: TextStyle(
-                  color: scheme.onSurfaceVariant,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500)),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLoadingView() {
-    return const Center(
-      child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(
-                valueColor:
-                    AlwaysStoppedAnimation<Color>(Color(0xFF1976D2)),
-                strokeWidth: 2),
-            SizedBox(height: 16),
-            Text('加载消息中...',
-                style: TextStyle(color: Colors.grey, fontSize: 14)),
-          ]),
-    );
-  }
-
-  Widget _buildEmptyView() {
-    return Center(
-      child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.chat_bubble_outline,
-                size: 64, color: Colors.grey[400]),
-            const SizedBox(height: 16),
-            Text('暂无消息',
-                style:
-                    TextStyle(color: Colors.grey[600], fontSize: 16)),
-            const SizedBox(height: 8),
-            Text('开始对话吧',
-                style:
-                    TextStyle(color: Colors.grey[500], fontSize: 14)),
-          ]),
-    );
-  }
-
-  Widget _buildInputArea() {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: scheme.surface, boxShadow: [
-        BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 3,
-            offset: const Offset(0, -2)),
       ]),
-      child: ChatInput(
-        controller: _textController,
-        onSend: _onSendMessage,
-        onSendMedia: _onSendMedia,
-        hintText: '输入消息...',
-      ),
     );
-  }
-
-  bool _isSameDay(DateTime date1, DateTime date2) {
-    return date1.year == date2.year &&
-        date1.month == date2.month &&
-        date1.day == date2.day;
   }
 }

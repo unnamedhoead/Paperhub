@@ -3,8 +3,8 @@
 /// Extracted from [FollowListScreen] to separate data loading and
 /// state management from UI rendering.
 import 'package:flutter/foundation.dart';
-import '../models/user_summary.dart';
-import '../services/api/interaction_api.dart';
+import '../../models/user_summary.dart';
+import '../../services/api/interaction_api.dart';
 
 class FollowController extends ChangeNotifier {
   final String userId;
